@@ -3,6 +3,7 @@ import Scene from './components/Scene'
 import UsernameInput from './components/UsernameInput'
 import InfoPanel from './components/InfoPanel'
 import ProfileBadge from './components/ProfileBadge'
+import Legend from './components/Legend'
 import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
 import type { Building, World } from './types'
 
@@ -22,6 +23,7 @@ export default function App() {
   const [stale, setStale] = useState(false)
   const [username, setUsername] = useState(usernameFromUrl)
   const [night, setNight] = useState(false)
+  const [showLegend, setShowLegend] = useState(false)
 
   const load = useCallback(async (name: string) => {
     setError(null)
@@ -95,6 +97,14 @@ export default function App() {
         >
           {night ? '☀️' : '🌙'}
         </button>
+        <button
+          className="legend-btn"
+          onClick={() => setShowLegend((v) => !v)}
+          aria-label="Toggle legend"
+          title="How to read the city"
+        >
+          ?
+        </button>
       </header>
 
       {world && !loading && <ProfileBadge world={world} />}
@@ -122,6 +132,8 @@ export default function App() {
       {selected && (
         <InfoPanel building={selected} onClose={() => setSelected(null)} />
       )}
+
+      <Legend visible={showLegend} onClose={() => setShowLegend(false)} />
 
       {!world && !loading && !error && (
         <div className="overlay">

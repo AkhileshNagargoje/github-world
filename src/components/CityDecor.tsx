@@ -24,27 +24,18 @@ interface RoadSeg {
   a: [number, number]
   b: [number, number]
 }
-interface Car {
-  pos: [number, number, number]
-  angle: number
-  color: string
+
+interface ParkData {
+  cx: number
+  cz: number
+  radius: number
 }
 
-// Cities-Skylines-ish car colors.
-const CAR_COLORS = ['#c94f4f', '#4f6dc9', '#e6e6e6', '#3a3a3a', '#d8b24a', '#5aa84f', '#bfbfbf']
-
-/**
- * Cities-Skylines-inspired street life for the scattered buildings: a connected
- * road network drawn with sidewalks + lane markings, tree-lined streets, cars,
- * and a streetlight by each building. No filler buildings — just the repo towers
- * living in a proper, detailed street layout.
- */
 export default function CityDecor({ buildings, spacing, radius, night }: CityDecorProps) {
-  const { roads, cars, trees, foliageScales, lamps } = useMemo(() => {
+  const { roads, parks, trees, foliageScales, lamps } = useMemo(() => {
     const rng = makeRng(0x51ede21)
     const minGap = spacing * 0.9
 
-    // --- Connected road network (MST + nearest neighbor) ---
     const n = buildings.length
     const pos = buildings.map((b) => b.position)
     const d2 = (i: number, j: number) =>
@@ -78,7 +69,6 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
     }
 
     const roads: RoadSeg[] = []
-    const cars: Car[] = []
     for (const key of edgeSet) {
       const [i, j] = key.split(',').map(Number)
       const a = pos[i]
@@ -89,24 +79,8 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       const angle = -Math.atan2(dz, dx)
       roads.push({ pos: [(a[0] + b[0]) / 2, 0.03, (a[1] + b[1]) / 2], length, angle, a, b })
 
-      // Cars driving along this road, offset into a lane.
-      const dirx = dx / length
-      const dirz = dz / length
-      const px = -dirz // perpendicular
-      const pz = dirx
-      const nCars = Math.max(0, Math.min(3, Math.floor(length / (spacing * 1.4))))
-      for (let c = 0; c < nCars; c++) {
-        const t = 0.18 + rng() * 0.64
-        const lane = (rng() < 0.5 ? 1 : -1) * spacing * 0.09
-        cars.push({
-          pos: [a[0] + dx * t + px * lane, 0.13, a[1] + dz * t + pz * lane],
-          angle,
-          color: CAR_COLORS[Math.floor(rng() * CAR_COLORS.length)],
-        })
-      }
     }
 
-    // --- Trees: line the streets, plus a few groves ---
     const trees: [number, number, number][] = []
     const foliageScales: number[] = []
     const treeTarget = Math.min(240, 60 + buildings.length * 3)
@@ -120,7 +94,6 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       trees.push([x, 0, z])
       foliageScales.push(rng() < 0.15 ? 1.0 + rng() * 0.5 : 0.5 + rng() * 0.4)
     }
-    // Street trees along each road.
     for (const r of roads) {
       const dirx = (r.b[0] - r.a[0]) / r.length
       const dirz = (r.b[1] - r.a[1]) / r.length
@@ -133,7 +106,27 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
         if (rng() < 0.7) tryPlace(r.a[0] + dirx * s - px * side, r.a[1] + dirz * s - pz * side)
       }
     }
-    // A few groves to fill open ground.
+
+    const parks: ParkData[] = []
+    const parkCount = Math.max(1, Math.floor(buildings.length / 8))
+    for (let p = 0; p < parkCount; p++) {
+      const a = rng() * Math.PI * 2
+      const r = Math.sqrt(rng()) * radius * 0.85
+      const cx = Math.cos(a) * r
+      const cz = Math.sin(a) * r
+      const pr = spacing * (0.8 + rng() * 1.2)
+      const clash = buildings.some((b) =>
+        Math.hypot(cx - b.position[0], cz - b.position[1]) < pr + Math.max(b.footprint, b.depth) * 0.7
+      )
+      if (clash) continue
+      parks.push({ cx, cz, radius: pr })
+      for (let k = 0; k < 8 + Math.floor(rng() * 6); k++) {
+        const rr = rng() * pr * 0.85
+        const aa = rng() * Math.PI * 2
+        tryPlace(cx + Math.cos(aa) * rr, cz + Math.sin(aa) * rr)
+      }
+    }
+
     const groves = 6
     for (let g = 0; g < groves; g++) {
       const a = rng() * Math.PI * 2
@@ -154,14 +147,31 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       b.position[1] + Math.max(b.footprint, b.depth) * 0.6 + 0.5,
     ])
 
-    return { roads, cars, trees, foliageScales, lamps }
+    return { roads, parks, trees, foliageScales, lamps }
   }, [buildings, spacing, radius])
 
   const roadW = spacing * 0.3
 
   return (
     <group>
-      {/* Roads: sidewalk base + asphalt + dashed centre line (3 instanced layers) */}
+      <group>
+        {parks.length > 0 && (
+          <Instances limit={parks.length} range={parks.length}>
+            <circleGeometry args={[1, 24]} />
+            <meshStandardMaterial color="#5b8a5c" roughness={1} transparent opacity={0.25} />
+            {parks.map((p, i) => (
+              <Instance
+                key={i}
+                position={[p.cx, 0.01, p.cz]}
+                rotation={[-Math.PI / 2, 0, 0]}
+                scale={p.radius}
+              />
+            ))}
+          </Instances>
+        )}
+      </group>
+
+      {/* Roads */}
       {roads.length > 0 && (
         <>
           <Instances limit={roads.length} range={roads.length} receiveShadow>
@@ -201,22 +211,6 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
             ))}
           </Instances>
         </>
-      )}
-
-      {/* Cars */}
-      {cars.length > 0 && (
-        <Instances limit={cars.length} range={cars.length} castShadow>
-          <boxGeometry args={[0.55, 0.22, 0.26]} />
-          <meshStandardMaterial
-            roughness={0.5}
-            metalness={0.1}
-            emissive="#fff2c4"
-            emissiveIntensity={night ? 0.35 : 0}
-          />
-          {cars.map((c, i) => (
-            <Instance key={i} position={c.pos} rotation={[0, c.angle, 0]} color={c.color} />
-          ))}
-        </Instances>
       )}
 
       {/* Trees */}

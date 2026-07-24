@@ -1,63 +1,61 @@
-# 🌆 GitHub World
+# GitHub World
 
 **Type any GitHub username and explore that profile as a low-poly 3D city.**
 
-The more active and celebrated the account, the bigger and richer its world.
-Star-studded projects rise as skyscrapers, your most-starred repo becomes a
-landmark monument in the center of town, and repos you've pushed to recently
-are lit up and "under construction" with a little crane on top.
+The more active and celebrated the account, the bigger and richer its world. Repos become buildings — height = code size, stars = a gold spire, popularity = a glowing ground halo, recent activity = lit windows and a construction crane. The top repo becomes a landmark monument in the city center.
 
-Built with React + Vite + TypeScript and
-[react-three-fiber](https://github.com/pmndrs/react-three-fiber). No API keys,
-no backend — it reads GitHub's public REST API straight from the browser.
+Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/pmndrs/react-three-fiber). No API keys, no backend — it reads GitHub's public REST API straight from the browser.
 
 ---
 
-## ✨ How GitHub stats map to the world
+## How GitHub stats map to the world
 
 | GitHub stat | World effect |
 | --- | --- |
-| Total repos | Number of buildings in the city |
-| Account age | How developed / sprawling the city feels |
-| Followers + total stars | Overall size & "prosperity" (bright & lush vs. small & barren) |
-| **Significance score** | **Building height (a substantial project → skyscraper)** |
-| Forks on a repo | Building width / footprint |
-| Primary language | Building color ([linguist](https://github.com/github/linguist) colors) |
-| Recent commits | Building lit up + construction crane on top |
-| Archived / stale repo | Finished, unlit building |
-| Highest-scoring repo | Landmark monument in the city center |
+| Repo code size (KB) | Building **height** — more code = taller |
+| Stars | Gold **spire** on the roof + golden **ground halo** |
+| Forks | Contributes to halo radius (popularity) |
+| Recent commits | **Window glow** — brighter when actively worked on |
+| Pushed within last 60 days | Construction **crane** on the roof ("under construction") |
+| Archived / stale repo | Dark windows ("finished building") |
+| Highest-scoring repo | **Landmark** — centered, extra height, balconies, beacon |
+| Followers + total stars | **Prosperity** — overall city brightness, greenness, scale |
 
 Forked repos are excluded so the city reflects your own work.
 
-### What makes a building grow
+### What makes a building tall
 
-Building height (and which repo becomes the landmark) is driven by a **composite
-significance score**, not raw stars — because at low star counts a throwaway repo
-that got one star would otherwise tower over the project you actually poured work
-into. The score blends log-scaled signals, each weighted in
-[`src/lib/github.ts`](src/lib/github.ts) via `SIGNAL_WEIGHTS`:
+Building height is driven by a **composite significance score** — tunable via `SIGNAL_WEIGHTS` in `src/lib/github.ts`. By default it's 100% code size (repo KB), rewarding projects you actually built. Change the weights to blend in stars, recency, or engagement.
 
-| Signal | What it rewards | Default weight |
+| Signal | Default weight | What it rewards |
 | --- | --- | --- |
-| **Code size** (repo KB) | How much you actually built | **1.0** |
-| Recency | Projects you're actively pushing to | 0.0 |
-| Stars | Social popularity | 0.0 |
-| Engagement | Forks + watchers + open issues | 0.0 |
+| **Code size** (repo KB) | **1.0** | How much you actually built |
+| Recency | 0.0 | Projects you're actively pushing to |
+| Stars | 0.0 | Social popularity |
+| Engagement | 0.0 | Forks + watchers + open issues |
 
-Heights are then normalized **relative to your biggest project**, so the city
-looks well-proportioned whether an account has 3 stars or 30,000. Tweak the
-weights to change what stands out — e.g. bump `stars` back up for a
-popularity-first world, or blend `codeSize` + `recency` to favor active,
-substantial work.
+Heights are normalized relative to your biggest project, so the city looks well-proportioned whether an account has 3 repos or 300.
 
-## 🎮 Controls
+### Visual language
+
+- **Building color**: monochrome (light near-whites) — language color appears only as a dot in the info panel
+- **Layout**: randomly scattered across a circular island, not a grid — deterministic per username
+- **Roads**: fully connected network (MST + nearest neighbor) with sidewalk, asphalt, and dashed centerline
+- **Cars**: driving back and forth along roads
+- **Trees**: street-side trees + random groves + dedicated park zones (green patches)
+- **Streetlights**: one beside every building, glow brighter at night
+- **Day/night toggle**: night mode adds stars, bloom post-processing, and glowing windows/lamps/spires
+
+## Controls
 
 - **Drag** — orbit the camera
 - **Scroll / pinch** — zoom
-- **Click a building** — see the repo name, stars, forks, language, and a link
+- **Click a building** — see the repo name, size, stars, forks, language, and a link
 - **Click empty ground** — deselect
+- **? button (top bar)** — legend explaining the visual language
+- **🌙/☀️ button** — toggle day/night
 
-## 🚀 Quick start
+## Quick start
 
 Requires **Node 18+**.
 
@@ -66,9 +64,7 @@ npm install
 npm run dev
 ```
 
-Then open the URL Vite prints (usually http://localhost:5173) and enter a
-username. It loads `AkhileshNagargoje` by default so there's a city to explore
-right away.
+Then open the URL Vite prints (usually http://localhost:5173) and enter a username. It loads `AkhileshNagargoje` by default.
 
 ### Build for production
 
@@ -77,16 +73,13 @@ npm run build      # outputs to dist/
 npm run preview    # serve the production build locally
 ```
 
-## ☁️ Deploy
+## Deploy
 
-The app is fully static, so any static host works. `vite.config.ts` sets
-`base: './'` so relative asset paths work at a root or a subpath.
+The app is fully static — any static host works.
 
 ### Vercel
 
-Import the repo at [vercel.com/new](https://vercel.com/new). Framework preset
-**Vite** is auto-detected:
-
+Import the repo at [vercel.com/new](https://vercel.com/new). Framework preset **Vite** is auto-detected:
 - Build command: `npm run build`
 - Output directory: `dist`
 
@@ -94,84 +87,51 @@ Import the repo at [vercel.com/new](https://vercel.com/new). Framework preset
 
 1. Push to GitHub.
 2. In **Settings → Pages**, set the source to **GitHub Actions**.
-3. Add the workflow below (`.github/workflows/deploy.yml`) — it's included in
-   this repo.
+3. The workflow at `.github/workflows/deploy.yml` handles the rest.
 
-```yaml
-name: Deploy to GitHub Pages
-on:
-  push:
-    branches: [main]
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
-```
+## GitHub API rate limits
 
-## ⚠️ GitHub API rate limits
+Unauthenticated requests are limited to **60 per hour per IP**. Each profile load = ~1–3 requests. If you hit the limit, the app falls back to a cached version if available.
 
-Unauthenticated requests are limited to **60 per hour per IP**. That's plenty
-for casual exploration. If you hit the limit, wait an hour or run behind a
-lightweight proxy that attaches a token. The app surfaces a friendly message
-when the limit is reached.
-
-## 🗂 Project structure
+## Project structure
 
 ```
 src/
   components/
-    Building.tsx      # one repo → one low-poly box (+ crane / landmark beacon)
-    Ground.tsx        # the lawn; greener when the account is prosperous
-    Scene.tsx         # Canvas, lights, sky, camera, OrbitControls
-    UsernameInput.tsx # the search box
-    InfoPanel.tsx     # selected-repo details card
-    ProfileBadge.tsx  # user overview card
+    Building.tsx       # one repo → one building (box, windows, spire, crane, signage)
+    Ground.tsx         # island landmass + surrounding water
+    CityDecor.tsx      # roads, animated cars, trees, parks, streetlights
+    Scene.tsx          # Canvas, lights, sky, camera, bloom
+    Legend.tsx         # "how to read the city" panel
+    UsernameInput.tsx  # the search box
+    InfoPanel.tsx      # selected-repo details card
+    ProfileBadge.tsx   # user overview card
   lib/
-    github.ts         # REST fetch + mapping of stats → World model
-    languageColors.ts # linguist language → hex color
-  types.ts            # GitHub + World type definitions
-  App.tsx             # state, data loading, layout
-  main.tsx            # React entry point
-  index.css           # UI chrome styling
+    github.ts          # REST fetch + mapping of stats → World model
+    languageColors.ts  # linguist language → hex color
+    buildingTextures.ts # procedural window textures
+    groundTexture.ts   # procedural grass texture
+  types.ts             # GitHub + World type definitions
+  App.tsx              # state, data loading, layout
+  main.tsx             # React entry point
+  index.css            # UI chrome styling
 ```
 
-## 🛣 Roadmap
+## Key tunables
 
-This is **v0.1**. Ideas for later:
+| Want to change... | File |
+|---|---|
+| What makes buildings tall | `SIGNAL_WEIGHTS` in `src/lib/github.ts` |
+| Building color scheme | `REPO_SHADES` in `src/lib/github.ts` |
+| How spread out buildings are | `cityRadius`, `minDist` in `buildWorld()` |
+| Window glow curve | `windowLightLevel()` in `github.ts` |
+| Bloom strength | `<Bloom>` props in `Scene.tsx` |
+| Day/night lighting | `sunIntensity` / `ambientIntensity` in `Scene.tsx` |
+| Road/car/tree density | `CityDecor.tsx` |
+| Island shape | `islandGeo` noise in `Ground.tsx` |
+| Cache freshness | `CACHE_FRESH_MS` in `github.ts` |
+| Max repos fetched | `maxRepos` in `fetchWorld()` |
 
-- Roads / districts grouped by language
-- Day–night cycle driven by commit activity
-- Contribution-graph terrain
-- Shareable permalinks (`/?u=username`)
-- Optional token input to raise the rate limit
-
-## 🤝 Contributing
-
-Issues and PRs welcome. Keep the aesthetic **low-poly and fast** — clean and
-intentional over high-fidelity.
-
-## 📄 License
+## License
 
 [MIT](./LICENSE)
