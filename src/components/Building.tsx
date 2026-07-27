@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
+import type { ThreeEvent } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import type { Building as BuildingModel } from '../types'
 import { getWindowTextures } from '../lib/buildingTextures'
@@ -38,6 +38,16 @@ export default function Building({ building, selected, night, onSelect }: Buildi
     windowLight,
   } = building
   const maxFoot = Math.max(footprint, depth)
+  const roadDistance = Math.hypot(x - building.roadPoint[0], z - building.roadPoint[1])
+  const plotW = footprint + 0.85
+  const plotD = depth + 0.85
+  // The driveway has to reach the asphalt, so it uses the same road width the
+  // layout set the plot back by (and that CityDecor renders).
+  const connectorLength = Math.max(
+    0,
+    roadDistance - plotD * 0.5 - building.roadWidth * 0.5,
+  )
+  const connectorWidth = Math.max(0.7, Math.min(1.15, footprint * 0.28))
 
   // Per-building window textures: clone the shared maps and set `repeat` so the
   // window grid tiles to roughly square cells regardless of the box size.
@@ -80,113 +90,119 @@ export default function Building({ building, selected, night, onSelect }: Buildi
   const doorH = Math.min(1.1, height * 0.28)
   const doorW = Math.min(footprint * 0.34, 0.9)
 
-  const plotR = maxFoot * 0.85 + 0.6
-
   return (
-    <group position={[x, 0, z]} rotation={[0, rotationY, 0]}>
-      {/* Paved plot the building sits on (roads flow into it) */}
-      <mesh position={[0, 0.05, 0]} receiveShadow>
-        <cylinderGeometry args={[plotR, plotR, 0.08, 20]} />
-        <meshStandardMaterial color="#b9bbc0" roughness={1} />
-      </mesh>
-
-      {/* Building body */}
-      <mesh
-        position={[0, height / 2, 0]}
-        castShadow
-        receiveShadow
-        onClick={handleClick}
-        onPointerOver={handleOver}
-        onPointerOut={handleOut}
-      >
-        <boxGeometry args={[footprint, height, depth]} />
-        <meshStandardMaterial
-          color={color}
-          map={map}
-          emissive={WARM_LIGHT}
-          emissiveMap={emissiveMap}
-          emissiveIntensity={emissiveIntensity}
-          roughness={0.72}
-          metalness={0.05}
-        />
-      </mesh>
-
-      {/* Door on the front (+z) face */}
-      <mesh position={[0, doorH / 2, depth / 2 + 0.01]}>
-        <boxGeometry args={[doorW, doorH, 0.06]} />
-        <meshStandardMaterial
-          color="#2a2f38"
-          emissive={WARM_LIGHT}
-          emissiveIntensity={windowLight * (night ? 1.4 : 0.6)}
-        />
-      </mesh>
-
-      {/* Balconies on the landmark for a bit of civic grandeur */}
-      {landmark && <Balconies height={height} footprint={footprint} />}
-
-      {/* Selection / hover outline ring on the ground */}
-      {(selected || hovered) && (
-        <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[maxFoot * 0.62, maxFoot * 0.82, 4]} />
-          <meshBasicMaterial color={selected ? GOLD : '#ffffff'} />
+    <group position={[x, 0, z]}>
+      <group rotation={[0, rotationY, 0]}>
+        {/* Sidewalk plot plus a short path to the nearest street. */}
+        <mesh position={[0, 0.035, 0]} receiveShadow>
+          <boxGeometry args={[plotW, 0.06, plotD]} />
+          <meshStandardMaterial color="#a9adb3" roughness={1} />
         </mesh>
-      )}
+        {connectorLength > 0 && (
+          <mesh position={[0, 0.04, plotD * 0.5 + connectorLength * 0.5]} receiveShadow>
+            <boxGeometry args={[connectorWidth, 0.055, connectorLength]} />
+            <meshStandardMaterial color="#9fa4ac" roughness={1} />
+          </mesh>
+        )}
 
-      {/* Prestige halo — famous repos get a golden ring of light on the ground */}
-      {haloRadius > 0 && (
-        <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[haloRadius * 0.82, haloRadius, 24]} />
-          <meshBasicMaterial
-            color={GOLD}
-            transparent
-            opacity={0.45}
-            side={THREE.DoubleSide}
+        {/* Building body */}
+        <mesh
+          position={[0, height / 2, 0]}
+          castShadow
+          receiveShadow
+          onClick={handleClick}
+          onPointerOver={handleOver}
+          onPointerOut={handleOut}
+        >
+          <boxGeometry args={[footprint, height, depth]} />
+          <meshStandardMaterial
+            color={color}
+            map={map}
+            emissive={WARM_LIGHT}
+            emissiveMap={emissiveMap}
+            emissiveIntensity={emissiveIntensity}
+            roughness={0.72}
+            metalness={0.05}
           />
         </mesh>
-      )}
 
-      {/* Star spire */}
-      {spireHeight > 0 && (
-        <group position={[0, height, 0]}>
-          <mesh position={[0, spireHeight / 2, 0]} castShadow>
-            <coneGeometry args={[0.22, spireHeight, 4]} />
+        {/* Door on the front (+z) face */}
+        <mesh position={[0, doorH / 2, depth / 2 + 0.01]}>
+          <boxGeometry args={[doorW, doorH, 0.06]} />
+          <meshStandardMaterial
+            color="#2a2f38"
+            emissive={WARM_LIGHT}
+            emissiveIntensity={windowLight * (night ? 1.4 : 0.6)}
+          />
+        </mesh>
+
+        {/* Balconies on the landmark for a bit of civic grandeur */}
+        {landmark && <Balconies height={height} footprint={footprint} />}
+
+        {/* Selection / hover outline ring on the ground */}
+        {(selected || hovered) && (
+          <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[maxFoot * 0.62, maxFoot * 0.82, 4]} />
+            <meshBasicMaterial color={selected ? GOLD : '#ffffff'} />
+          </mesh>
+        )}
+
+        {/* Prestige halo — famous repos get a golden ring of light on the ground */}
+        {haloRadius > 0 && (
+          <mesh position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[haloRadius * 0.82, haloRadius, 24]} />
+            <meshBasicMaterial
+              color={GOLD}
+              transparent
+              opacity={0.45}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        )}
+
+        {/* Star spire */}
+        {spireHeight > 0 && (
+          <group position={[0, height, 0]}>
+            <mesh position={[0, spireHeight / 2, 0]} castShadow>
+              <coneGeometry args={[0.22, spireHeight, 4]} />
+              <meshStandardMaterial
+                color={GOLD}
+                emissive={GOLD}
+                emissiveIntensity={0.6}
+                metalness={0.7}
+                roughness={0.3}
+                flatShading
+              />
+            </mesh>
+          </group>
+        )}
+
+        {/* Landmark beacon (marks the city center regardless of stars) */}
+        {landmark && (
+          <mesh position={[0, height + spireHeight + 0.7, 0]}>
+            <octahedronGeometry args={[0.6, 0]} />
             <meshStandardMaterial
               color={GOLD}
               emissive={GOLD}
-              emissiveIntensity={0.6}
-              metalness={0.7}
-              roughness={0.3}
+              emissiveIntensity={1.2}
               flatShading
             />
           </mesh>
-        </group>
-      )}
+        )}
 
-      {/* Landmark beacon (marks the city center regardless of stars) */}
-      {landmark && (
-        <mesh position={[0, height + spireHeight + 0.7, 0]}>
-          <octahedronGeometry args={[0.6, 0]} />
-          <meshStandardMaterial
-            color={GOLD}
-            emissive={GOLD}
-            emissiveIntensity={1.2}
-            flatShading
-          />
-        </mesh>
-      )}
+        {/* "Under construction" crane on active, non-landmark repos */}
+        {active && !landmark && <Crane baseHeight={height} />}
 
-      {/* "Under construction" crane on active, non-landmark repos */}
-      {active && !landmark && <Crane baseHeight={height} />}
-
-      {/* Name signs mounted on the building facade (front & back faces), sized
-          to roughly span the width, near the top — like real rooftop signage. */}
-      <FacadeSign
-        name={name}
-        width={footprint}
-        depth={depth}
-        height={height}
-        selected={selected}
-      />
+        {/* Name signs mounted on the building facade (front & back faces), sized
+            to roughly span the width, near the top - like real rooftop signage. */}
+        <FacadeSign
+          name={name}
+          width={footprint}
+          depth={depth}
+          height={height}
+          selected={selected}
+        />
+      </group>
     </group>
   )
 }

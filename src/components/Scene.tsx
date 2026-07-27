@@ -86,6 +86,7 @@ export default function Scene({
       <Ground prosperity={world.prosperity} radius={radius} night={night} />
       <CityDecor
         buildings={world.buildings}
+        cityRoads={world.roads}
         spacing={world.spacing}
         radius={radius}
         night={night}

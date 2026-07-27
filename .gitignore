@@ -13,6 +13,9 @@ dist-ssr
 *.tsbuildinfo
 vite.config.d.ts
 
+# Local AI/editor tool history
+.aider*
+
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json

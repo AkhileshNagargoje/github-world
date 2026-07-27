@@ -39,9 +39,8 @@ Heights are normalized relative to your biggest project, so the city looks well-
 ### Visual language
 
 - **Building color**: monochrome (light near-whites) — language color appears only as a dot in the info panel
-- **Layout**: randomly scattered across a circular island, not a grid — deterministic per username
-- **Roads**: fully connected network (MST + nearest neighbor) with sidewalk, asphalt, and dashed centerline
-- **Cars**: driving back and forth along roads
+- **Layout**: irregular city blocks scattered across an island, deterministic per username — repos front the street on both kerbs, biggest project first
+- **Roads**: one fully connected network — block perimeters plus a minimum spanning tree (and a few extra loops) between blocks, each street drawn as sidewalk, asphalt and a dashed centerline, with a driveway from every building
 - **Trees**: street-side trees + random groves + dedicated park zones (green patches)
 - **Streetlights**: one beside every building, glow brighter at night
 - **Day/night toggle**: night mode adds stars, bloom post-processing, and glowing windows/lamps/spires
@@ -100,7 +99,7 @@ src/
   components/
     Building.tsx       # one repo → one building (box, windows, spire, crane, signage)
     Ground.tsx         # island landmass + surrounding water
-    CityDecor.tsx      # roads, animated cars, trees, parks, streetlights
+    CityDecor.tsx      # roads, trees, parks, streetlights
     Scene.tsx          # Canvas, lights, sky, camera, bloom
     Legend.tsx         # "how to read the city" panel
     UsernameInput.tsx  # the search box
@@ -123,11 +122,12 @@ src/
 |---|---|
 | What makes buildings tall | `SIGNAL_WEIGHTS` in `src/lib/github.ts` |
 | Building color scheme | `REPO_SHADES` in `src/lib/github.ts` |
-| How spread out buildings are | `cityRadius`, `minDist` in `buildWorld()` |
+| How spread out buildings are | `spacing`, `BLOCK_GAP`, `BLOCK_RING` in `src/lib/github.ts` |
+| Street width | `ROAD_WIDTH_RATIO` in `src/lib/github.ts` |
 | Window glow curve | `windowLightLevel()` in `github.ts` |
 | Bloom strength | `<Bloom>` props in `Scene.tsx` |
 | Day/night lighting | `sunIntensity` / `ambientIntensity` in `Scene.tsx` |
-| Road/car/tree density | `CityDecor.tsx` |
+| Road/tree density | `CityDecor.tsx` |
 | Island shape | `islandGeo` noise in `Ground.tsx` |
 | Cache freshness | `CACHE_FRESH_MS` in `github.ts` |
 | Max repos fetched | `maxRepos` in `fetchWorld()` |

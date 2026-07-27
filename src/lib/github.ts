@@ -1,4 +1,4 @@
-import type { Building, GitHubRepo, GitHubUser, World } from '../types'
+import type { Building, CityRoad, GitHubRepo, GitHubUser, World } from '../types'
 
 const API_BASE = 'https://api.github.com'
 
@@ -152,42 +152,267 @@ function strSeed(str: string): number {
 }
 
 /**
- * Scatter buildings randomly across a disk of radius `radius`, using rejection
- * sampling so they keep at least `minDist` apart. The top-ranked landmark is
- * pinned to the center as an anchor; every other building lands anywhere —
- * some near the middle, some out at the edges.
+ * Place buildings along loose city-block streets. The first repo (landmark)
+ * stays close to the middle, but every building still gets deterministic
+ * jitter so the layout reads as a planned city, not a perfect spreadsheet.
  */
-function scatterPositions(
+interface LayoutSlot {
+  roadPoint: [number, number]
+  roadDir: [number, number]
+  roadNormal: [number, number]
+}
+
+interface CityLayout {
+  slots: LayoutSlot[]
+  roads: CityRoad[]
+}
+
+/** Street width as a multiple of `spacing` — shared by the layout and the renderer. */
+export const ROAD_WIDTH_RATIO = 0.34
+/** Roughly 6 buildings front each city block, leaving spare plots to skip to. */
+export function blockCountFor(count: number): number {
+  return Math.max(1, Math.ceil(count / 6))
+}
+// Blocks are up to `spacing * 6.4` wide and `spacing * 5.3` deep, so their half
+// diagonal reaches ~`spacing * 4.15`. Centers must sit farther apart than twice
+// that or the block outlines intersect — which used to collapse the connecting
+// roads between them to zero length, fragmenting the network.
+// (Plus room for the plots that face outward from each block.)
+const BLOCK_GAP = 9.8
+const BLOCK_RING = 9.2
+
+function organicCityLayout(
   count: number,
   radius: number,
-  minDist: number,
+  spacing: number,
   rng: () => number,
-): [number, number][] {
-  const out: [number, number][] = [[0, 0]]
-  for (let i = 1; i < count; i++) {
-    let best: [number, number] = [0, 0]
-    let bestDist = -1
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const a = rng() * Math.PI * 2
-      const r = Math.sqrt(rng()) * radius * 0.96 // sqrt → uniform over the disk
-      const p: [number, number] = [Math.cos(a) * r, Math.sin(a) * r]
-      let nearest = Infinity
-      for (const q of out) {
-        const d = Math.hypot(p[0] - q[0], p[1] - q[1])
-        if (d < nearest) nearest = d
-      }
-      if (nearest > minDist) {
-        best = p
-        break
-      }
-      if (nearest > bestDist) {
-        bestDist = nearest
-        best = p
+): CityLayout {
+  if (count <= 0) return { slots: [], roads: [] }
+
+  const roads: CityRoad[] = []
+  const candidates: (LayoutSlot & { rank: number })[] = []
+  const blockCount = blockCountFor(count)
+
+  const addCandidate = (
+    roadPoint: [number, number],
+    roadDir: [number, number],
+    roadNormal: [number, number],
+    rankPenalty = 0,
+  ) => {
+    const rank =
+      Math.hypot(roadPoint[0], roadPoint[1]) + rng() * spacing * 1.8 + rankPenalty
+    candidates.push({ roadPoint, roadDir, roadNormal, rank })
+  }
+
+  const addRoadSegment = (a: [number, number], b: [number, number]) => {
+    roads.push({ a, b })
+  }
+
+  interface Block {
+    center: [number, number]
+    u: [number, number]
+    v: [number, number]
+    width: number
+    depth: number
+    corners: [number, number][]
+  }
+
+  const blocks: Block[] = []
+  const districtAngle = (rng() - 0.5) * 0.45
+
+  const makeBlock = (center: [number, number], index: number): Block => {
+    const angle = districtAngle + (rng() - 0.5) * 0.75 + ((index % 3) - 1) * 0.08
+    const u: [number, number] = [Math.cos(angle), Math.sin(angle)]
+    const v: [number, number] = [-u[1], u[0]]
+    const width = spacing * (4.2 + rng() * 2.2)
+    const depth = spacing * (3.4 + rng() * 1.9)
+    const hw = width / 2
+    const hd = depth / 2
+    const corner = (su: number, sv: number): [number, number] => [
+      center[0] + u[0] * hw * su + v[0] * hd * sv,
+      center[1] + u[1] * hw * su + v[1] * hd * sv,
+    ]
+    return {
+      center,
+      u,
+      v,
+      width,
+      depth,
+      corners: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)],
+    }
+  }
+
+  for (let i = 0; i < blockCount; i++) {
+    let center: [number, number] = [0, 0]
+    if (i > 0) {
+      // Walk outward on a phyllotaxis spiral, growing the ring on every failed
+      // attempt so a block always lands clear of the ones already placed.
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const ring = spacing * BLOCK_RING * Math.sqrt(i) * (1 + attempt * 0.06)
+        const angle = i * 2.399963 + rng() * 0.5
+        center = [
+          Math.cos(angle) * ring + (rng() - 0.5) * spacing,
+          Math.sin(angle) * ring + (rng() - 0.5) * spacing,
+        ]
+        const clear = blocks.every(
+          (block) =>
+            Math.hypot(center[0] - block.center[0], center[1] - block.center[1]) >
+            spacing * BLOCK_GAP,
+        )
+        if (clear) break
       }
     }
-    out.push(best)
+    blocks.push(makeBlock(center, i))
   }
-  return out
+
+  const boundaryPoint = (block: Block, target: [number, number]): [number, number] => {
+    const dx = target[0] - block.center[0]
+    const dz = target[1] - block.center[1]
+    const len = Math.hypot(dx, dz) || 1
+    const dir: [number, number] = [dx / len, dz / len]
+    const du = Math.abs(dir[0] * block.u[0] + dir[1] * block.u[1])
+    const dv = Math.abs(dir[0] * block.v[0] + dir[1] * block.v[1])
+    const tu = du > 0.0001 ? block.width / 2 / du : Infinity
+    const tv = dv > 0.0001 ? block.depth / 2 / dv : Infinity
+    const t = Math.min(tu, tv)
+    return [block.center[0] + dir[0] * t, block.center[1] + dir[1] * t]
+  }
+
+  for (const block of blocks) {
+    const corners = block.corners
+    for (let edgeIndex = 0; edgeIndex < corners.length; edgeIndex++) {
+      const a = corners[edgeIndex]
+      const b = corners[(edgeIndex + 1) % corners.length]
+      addRoadSegment(a, b)
+
+      const dx = b[0] - a[0]
+      const dz = b[1] - a[1]
+      const length = Math.hypot(dx, dz)
+      const roadDir: [number, number] = [dx / length, dz / length]
+      const roadNormal: [number, number] = [-roadDir[1], roadDir[0]]
+      const slotGap = spacing * 1.5
+      const slotCount = Math.max(1, Math.floor(length / slotGap))
+      for (let slot = 1; slot <= slotCount; slot++) {
+        const t = slot / (slotCount + 1)
+        const jitter = (rng() - 0.5) * spacing * 0.35
+        const along = Math.max(spacing * 0.5, Math.min(length - spacing * 0.5, t * length + jitter))
+        const point: [number, number] = [
+          a[0] + roadDir[0] * along,
+          a[1] + roadDir[1] * along,
+        ]
+        // A plot on each side of the street: real blocks are built up on both
+        // kerbs, and the spare plots give the placer room to skip a bad fit.
+        addCandidate(point, roadDir, roadNormal)
+        addCandidate(point, roadDir, [-roadNormal[0], -roadNormal[1]], spacing * 2.5)
+      }
+    }
+  }
+
+  // Link the blocks with a minimum spanning tree over their centers, so every
+  // block — and therefore every building fronting it — is reachable by road.
+  // (Connecting each block only to the nearest *earlier* one left long detours
+  // and, when two blocks overlapped, zero-length stubs that vanished entirely.)
+  const blockDistance = (i: number, j: number) =>
+    Math.hypot(
+      blocks[i].center[0] - blocks[j].center[0],
+      blocks[i].center[1] - blocks[j].center[1],
+    )
+  const connect = (i: number, j: number) => {
+    const a = boundaryPoint(blocks[i], blocks[j].center)
+    const b = boundaryPoint(blocks[j], blocks[i].center)
+    // With BLOCK_GAP separation this is always a real street; the guard just
+    // stops a degenerate stub from ever reaching the renderer.
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < spacing * 0.25) return
+    addRoadSegment(a, b)
+  }
+
+  const linked = new Set<number>([0])
+  while (linked.size < blocks.length) {
+    let bestFrom = 0
+    let bestTo = -1
+    let bestDistance = Infinity
+    for (const i of linked) {
+      for (let j = 0; j < blocks.length; j++) {
+        if (linked.has(j)) continue
+        const d = blockDistance(i, j)
+        if (d < bestDistance) {
+          bestDistance = d
+          bestFrom = i
+          bestTo = j
+        }
+      }
+    }
+    if (bestTo < 0) break
+    connect(bestFrom, bestTo)
+    linked.add(bestTo)
+  }
+
+  // A tree alone reads as a branching diagram; add a few short extra links so
+  // the network has loops like a real street grid.
+  const extraLinks = Math.floor(blocks.length / 3)
+  const pairs: { i: number; j: number; d: number }[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) pairs.push({ i, j, d: blockDistance(i, j) })
+  }
+  pairs.sort((a, b) => a.d - b.d)
+  for (const pair of pairs.slice(blocks.length - 1, blocks.length - 1 + extraLinks)) {
+    connect(pair.i, pair.j)
+  }
+
+  // Keep every well-separated plot, not just the first `count` — buildWorld
+  // picks from these by rank and needs spares to skip past when a wide tower
+  // won't fit the next slot along.
+  const slots: LayoutSlot[] = []
+  const spares: LayoutSlot[] = []
+  const sortedCandidates = candidates.sort((a, b) => a.rank - b.rank)
+  for (const candidate of sortedCandidates) {
+    const clear = slots.every((slot) => {
+      // Plots facing each other across the same street don't crowd each other,
+      // so only plots on the same kerb need the spacing check.
+      const sameSide =
+        candidate.roadNormal[0] * slot.roadNormal[0] +
+          candidate.roadNormal[1] * slot.roadNormal[1] >
+        0
+      if (!sameSide) return true
+      return (
+        Math.hypot(
+          candidate.roadPoint[0] - slot.roadPoint[0],
+          candidate.roadPoint[1] - slot.roadPoint[1],
+        ) > spacing * 1.55
+      )
+    })
+    if (clear) slots.push(candidate)
+    else spares.push(candidate)
+  }
+  // Never return fewer plots than there are buildings to place.
+  for (const spare of spares) {
+    if (slots.length >= count) break
+    slots.push(spare)
+  }
+
+  // Keep all plots inside the island even for very large profiles.
+  const maxDist = Math.max(
+    1,
+    ...slots.map((slot) => Math.hypot(...slot.roadPoint)),
+    ...roads.flatMap((road) => [Math.hypot(...road.a), Math.hypot(...road.b)]),
+  )
+  if (maxDist > radius * 0.9) {
+    const scale = (radius * 0.9) / maxDist
+    const scaledRoads: CityRoad[] = roads.map((road) => ({
+      a: [road.a[0] * scale, road.a[1] * scale] as [number, number],
+      b: [road.b[0] * scale, road.b[1] * scale] as [number, number],
+    }))
+    return {
+      slots: slots.map(({ roadPoint, roadDir, roadNormal }) => ({
+        roadPoint: [roadPoint[0] * scale, roadPoint[1] * scale],
+        roadDir,
+        roadNormal,
+      })),
+      roads: scaledRoads,
+    }
+  }
+
+  return { slots, roads }
 }
 
 // Building height range (world units). The most significant repo reaches
@@ -230,16 +455,43 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
   // Radius the buildings scatter across (no filler city — just the repos,
   // spread out so some sit near the center and some out at the edges).
   const count = scored.length
-  const cityRadius = spacing * (1.35 * Math.sqrt(Math.max(1, count)) + 3)
-  const minDist = spacing * 1.15
-  const positions = scatterPositions(
+  // The island has to hold the whole block layout, otherwise the layout gets
+  // scaled down to fit and the streets end up narrower than the buildings.
+  const blockReach =
+    spacing * (BLOCK_RING * Math.sqrt(Math.max(0, blockCountFor(count) - 1)) + 4.4)
+  const cityRadius = Math.max(
+    spacing * (2.25 * Math.sqrt(Math.max(1, count)) + 4),
+    blockReach / 0.88,
+  )
+  const layout = organicCityLayout(
     count,
     cityRadius,
-    minDist,
+    spacing,
     makeRng(strSeed(user.login)),
   )
+  const positions = layout.slots
+  // Plots are claimed biggest-repo-first: each building takes the most central
+  // free plot it actually fits on, so wide towers never end up overlapping the
+  // neighbour that shares their block corner.
+  const takenSlots = new Set<number>()
+  const placed: { x: number; z: number; radius: number }[] = []
+  const roadWidth = spacing * ROAD_WIDTH_RATIO
+  // Street segments, so a plot never gets chosen where the building body would
+  // stand in a road crossing behind or beside its own street.
+  const roadSegs = layout.roads
+    .map(({ a, b }) => ({ a, b, length: Math.hypot(b[0] - a[0], b[1] - a[1]) }))
+    .filter((seg) => seg.length >= 0.05)
+  const distToRoad = (x: number, z: number, seg: (typeof roadSegs)[number]) => {
+    const dx = seg.b[0] - seg.a[0]
+    const dz = seg.b[1] - seg.a[1]
+    const t = Math.max(
+      0,
+      Math.min(1, ((x - seg.a[0]) * dx + (z - seg.a[1]) * dz) / (seg.length * seg.length)),
+    )
+    return Math.hypot(x - (seg.a[0] + dx * t), z - (seg.a[1] + dz * t))
+  }
 
-  const buildings: Building[] = scored.map(({ repo, score }, index) => {
+  const buildings: Building[] = scored.map(({ repo, score }) => {
     const landmark = repo.id === landmarkId
     // Height scales relative to the tallest project so proportions read well
     // for any account, whether it has 3 stars or 30,000.
@@ -257,18 +509,67 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     // grand, square, centered monument.
     let footprint: number
     let depth: number
-    let rotationY: number
-    const position = positions[index]
     if (landmark) {
       footprint = Math.max(baseFootprint, 3)
       depth = footprint
-      rotationY = 0
     } else {
       const ratio = 0.72 + rnd(1) * 0.9 // 0.72..1.62 width:depth
       footprint = baseFootprint * Math.sqrt(ratio)
       depth = baseFootprint / Math.sqrt(ratio)
-      rotationY = (rnd(2) - 0.5) * 0.16 // ~±4.5°
     }
+
+    // Sit the plot back from the street centerline by half a road, half a plot,
+    // and a driveway — so the driveway drawn in Building.tsx always lands
+    // exactly on the asphalt, whatever the building's proportions.
+    const plotDepth = depth + 0.85
+    const driveway = spacing * 0.3
+    const roadSetback = roadWidth * 0.5 + plotDepth * 0.5 + driveway
+    const bodyRadius = Math.max(footprint, depth) * 0.5
+    const positionFor = (slot: LayoutSlot): [number, number] => [
+      slot.roadPoint[0] + slot.roadNormal[0] * roadSetback,
+      slot.roadPoint[1] + slot.roadNormal[1] * roadSetback,
+    ]
+
+    let chosen = -1
+    // If nothing fits outright, fall back to the free plot that's least
+    // crowded rather than simply the next one along.
+    let looseSlot = -1
+    let looseOverlap = Infinity
+    for (let s = 0; s < positions.length; s++) {
+      if (takenSlots.has(s)) continue
+      const [px, pz] = positionFor(positions[s])
+      let worst = 0
+      for (const q of placed) {
+        worst = Math.max(worst, q.radius + bodyRadius + 0.7 - Math.hypot(px - q.x, pz - q.z))
+        if (worst >= looseOverlap) break
+      }
+      if (worst < looseOverlap) {
+        for (const seg of roadSegs) {
+          worst = Math.max(
+            worst,
+            roadWidth * 0.5 + bodyRadius + 0.3 - distToRoad(px, pz, seg),
+          )
+          if (worst >= looseOverlap) break
+        }
+      }
+      if (worst <= 0) {
+        chosen = s
+        break
+      }
+      if (worst < looseOverlap) {
+        looseOverlap = worst
+        looseSlot = s
+      }
+    }
+    if (chosen < 0) chosen = looseSlot >= 0 ? looseSlot : 0
+    takenSlots.add(chosen)
+
+    const plot = positions[chosen]
+    const faceRoadAngle = Math.atan2(-plot.roadNormal[0], -plot.roadNormal[1])
+    const rotationY = landmark ? faceRoadAngle : faceRoadAngle + (rnd(2) - 0.5) * 0.16
+    const position = positionFor(plot)
+    placed.push({ x: position[0], z: position[1], radius: bodyRadius })
+
     return {
       id: repo.id,
       name: repo.name,
@@ -289,12 +590,47 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
       windowLight: windowLightLevel(repo),
       landmark,
       position,
+      roadWidth,
+      roadPoint: plot.roadPoint,
+      roadDir: plot.roadDir,
+      roadNormal: plot.roadNormal,
     }
   })
+
+  // Last resort for the rare pair that still touches (a profile with more repos
+  // than there are good plots): nudge the lesser building deeper into its lot,
+  // capped so its driveway stays a driveway rather than a runway.
+  const maxNudge = spacing * 1.2
+  const nudged = new Map<number, number>()
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false
+    for (let i = 0; i < buildings.length; i++) {
+      for (let j = i + 1; j < buildings.length; j++) {
+        const a = buildings[i]
+        const b = buildings[j]
+        const need =
+          (Math.max(a.footprint, a.depth) + Math.max(b.footprint, b.depth)) / 2 + 0.4
+        const d = Math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
+        if (d >= need) continue
+        // `buildings` is sorted by score, so b is the lesser one.
+        const used = nudged.get(b.id) ?? 0
+        const push = Math.min(need - d, maxNudge - used)
+        if (push <= 0) continue
+        nudged.set(b.id, used + push)
+        b.position = [
+          b.position[0] + b.roadNormal[0] * push,
+          b.position[1] + b.roadNormal[1] * push,
+        ]
+        moved = true
+      }
+    }
+    if (!moved) break
+  }
 
   return {
     user,
     buildings,
+    roads: layout.roads,
     prosperity,
     totalStars,
     accountAgeYears,
@@ -323,7 +659,9 @@ export async function fetchWorld(
 // --- localStorage cache so repeat views are instant and rate limits (60/hr for
 // unauthenticated requests) fall back to the last-seen city instead of failing.
 
-const CACHE_PREFIX = 'ghw:world:'
+// Bump on any change to the World shape or the layout — cached entries store a
+// fully built World, so a stale one would render with the old geometry.
+const CACHE_PREFIX = 'ghw:world:v12:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

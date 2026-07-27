@@ -63,12 +63,26 @@ export interface Building {
   landmark: boolean
   /** Grid position in the world (x, z). */
   position: [number, number]
+  /** Width of the street this building fronts (matches what CityDecor draws). */
+  roadWidth: number
+  /** Point on the road centerline closest to this building. */
+  roadPoint: [number, number]
+  /** Unit direction vector of the road this building faces. */
+  roadDir: [number, number]
+  /** Unit vector pointing from the road toward the building. */
+  roadNormal: [number, number]
+}
+
+export interface CityRoad {
+  a: [number, number]
+  b: [number, number]
 }
 
 /** Everything the scene needs to render one user's world. */
 export interface World {
   user: GitHubUser
   buildings: Building[]
+  roads: CityRoad[]
   /** 0..1 measure of overall prosperity — drives lighting & ground lushness. */
   prosperity: number
   /** Total stars across all (non-fork) repos. */

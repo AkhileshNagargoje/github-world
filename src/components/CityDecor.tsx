@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import { Instances, Instance } from '@react-three/drei'
-import type { Building } from '../types'
+import { ROAD_WIDTH_RATIO } from '../lib/github'
+import type { Building, CityRoad } from '../types'
 
 interface CityDecorProps {
   buildings: Building[]
+  cityRoads: CityRoad[]
   spacing: number
   radius: number
   night: boolean
@@ -31,54 +33,47 @@ interface ParkData {
   radius: number
 }
 
-export default function CityDecor({ buildings, spacing, radius, night }: CityDecorProps) {
+export default function CityDecor({
+  buildings,
+  cityRoads,
+  spacing,
+  radius,
+  night,
+}: CityDecorProps) {
+  const roadW = spacing * ROAD_WIDTH_RATIO
+
   const { roads, parks, trees, foliageScales, lamps } = useMemo(() => {
     const rng = makeRng(0x51ede21)
-    const minGap = spacing * 0.9
-
-    const n = buildings.length
-    const pos = buildings.map((b) => b.position)
-    const d2 = (i: number, j: number) =>
-      Math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1])
-    const edgeSet = new Set<string>()
-    const addEdge = (i: number, j: number) => edgeSet.add(i < j ? `${i},${j}` : `${j},${i}`)
-    if (n > 1) {
-      const inTree = new Array(n).fill(false)
-      const best = new Array(n).fill(Infinity)
-      const parent = new Array(n).fill(-1)
-      best[0] = 0
-      for (let it = 0; it < n; it++) {
-        let u = -1
-        let bd = Infinity
-        for (let v = 0; v < n; v++) if (!inTree[v] && best[v] < bd) (bd = best[v]), (u = v)
-        if (u < 0) break
-        inTree[u] = true
-        if (parent[u] >= 0) addEdge(u, parent[u])
-        for (let v = 0; v < n; v++) {
-          if (inTree[v]) continue
-          const d = d2(u, v)
-          if (d < best[v]) (best[v] = d), (parent[v] = u)
-        }
-      }
-      for (let i = 0; i < n; i++) {
-        let nj = -1
-        let nd = Infinity
-        for (let j = 0; j < n; j++) if (j !== i && d2(i, j) < nd) (nd = d2(i, j)), (nj = j)
-        if (nj >= 0) addEdge(i, nj)
-      }
+    if (buildings.length === 0) {
+      return { roads: [], parks: [], trees: [], foliageScales: [], lamps: [] }
     }
 
-    const roads: RoadSeg[] = []
-    for (const key of edgeSet) {
-      const [i, j] = key.split(',').map(Number)
-      const a = pos[i]
-      const b = pos[j]
+    // Draw every segment the layout produced — dropping "short" ones used to
+    // delete the links between blocks and leave the network fragmented.
+    const toRoadSeg = ({ a, b }: CityRoad): RoadSeg | null => {
       const dx = b[0] - a[0]
       const dz = b[1] - a[1]
       const length = Math.hypot(dx, dz)
-      const angle = -Math.atan2(dz, dx)
-      roads.push({ pos: [(a[0] + b[0]) / 2, 0.03, (a[1] + b[1]) / 2], length, angle, a, b })
+      if (length < 0.05) return null
+      return {
+        pos: [(a[0] + b[0]) / 2, 0.03, (a[1] + b[1]) / 2],
+        length,
+        angle: -Math.atan2(dz, dx),
+        a,
+        b,
+      }
+    }
+    const roads = cityRoads.map(toRoadSeg).filter((road): road is RoadSeg => road !== null)
 
+    /** Distance from a point to a road centerline segment. */
+    const distToRoad = (x: number, z: number, r: RoadSeg) => {
+      const dx = r.b[0] - r.a[0]
+      const dz = r.b[1] - r.a[1]
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - r.a[0]) * dx + (z - r.a[1]) * dz) / (r.length * r.length)),
+      )
+      return Math.hypot(x - (r.a[0] + dx * t), z - (r.a[1] + dz * t))
     }
 
     const trees: [number, number, number][] = []
@@ -86,11 +81,17 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
     const treeTarget = Math.min(240, 60 + buildings.length * 3)
     const tryPlace = (x: number, z: number) => {
       if (Math.hypot(x, z) > radius * 0.99 || trees.length >= treeTarget) return
+      // Only the building's own footprint (plus its sidewalk plot) is off
+      // limits. The old margin was wider than the street itself, which is why
+      // almost every street tree was rejected and the island looked bare.
       const clash = buildings.some((b) => {
-        const half = Math.max(b.footprint, b.depth) * 0.7 + minGap
+        const half = Math.max(b.footprint, b.depth) * 0.5 + 0.9
         return Math.hypot(x - b.position[0], z - b.position[1]) < half
       })
       if (clash) return
+      // Never plant in the middle of the asphalt.
+      if (roads.some((r) => distToRoad(x, z, r) < roadW * 0.75 + 0.35)) return
+      if (trees.some((t) => Math.hypot(x - t[0], z - t[2]) < 0.9)) return
       trees.push([x, 0, z])
       foliageScales.push(rng() < 0.15 ? 1.0 + rng() * 0.5 : 0.5 + rng() * 0.4)
     }
@@ -101,7 +102,7 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       const pz = dirx
       const step = spacing * 1.6
       for (let s = step; s < r.length - step; s += step) {
-        const side = spacing * 0.42
+        const side = spacing * 0.45
         if (rng() < 0.7) tryPlace(r.a[0] + dirx * s + px * side, r.a[1] + dirz * s + pz * side)
         if (rng() < 0.7) tryPlace(r.a[0] + dirx * s - px * side, r.a[1] + dirz * s - pz * side)
       }
@@ -109,7 +110,8 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
 
     const parks: ParkData[] = []
     const parkCount = Math.max(1, Math.floor(buildings.length / 8))
-    for (let p = 0; p < parkCount; p++) {
+    // Retry rejected spots instead of silently dropping the park.
+    for (let attempt = 0; attempt < parkCount * 10 && parks.length < parkCount; attempt++) {
       const a = rng() * Math.PI * 2
       const r = Math.sqrt(rng()) * radius * 0.85
       const cx = Math.cos(a) * r
@@ -118,7 +120,7 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       const clash = buildings.some((b) =>
         Math.hypot(cx - b.position[0], cz - b.position[1]) < pr + Math.max(b.footprint, b.depth) * 0.7
       )
-      if (clash) continue
+      if (clash || parks.some((q) => Math.hypot(cx - q.cx, cz - q.cz) < pr + q.radius)) continue
       parks.push({ cx, cz, radius: pr })
       for (let k = 0; k < 8 + Math.floor(rng() * 6); k++) {
         const rr = rng() * pr * 0.85
@@ -141,16 +143,20 @@ export default function CityDecor({ buildings, spacing, radius, night }: CityDec
       }
     }
 
-    const lamps: [number, number, number][] = buildings.map((b) => [
-      b.position[0] + Math.max(b.footprint, b.depth) * 0.6 + 0.5,
-      0,
-      b.position[1] + Math.max(b.footprint, b.depth) * 0.6 + 0.5,
-    ])
+    // One lamp per building, standing on the kerb beside its driveway rather
+    // than at a fixed diagonal offset (which dropped lamps in back yards).
+    const lamps: [number, number, number][] = buildings.map((b, i) => {
+      const kerb = roadW * 0.5 + 0.55
+      const along = (i % 2 === 0 ? 1 : -1) * (b.footprint * 0.5 + 0.9)
+      return [
+        b.roadPoint[0] + b.roadNormal[0] * kerb + b.roadDir[0] * along,
+        0,
+        b.roadPoint[1] + b.roadNormal[1] * kerb + b.roadDir[1] * along,
+      ]
+    })
 
     return { roads, parks, trees, foliageScales, lamps }
-  }, [buildings, spacing, radius])
-
-  const roadW = spacing * 0.3
+  }, [buildings, cityRoads, spacing, radius])
 
   return (
     <group>
