@@ -18,6 +18,10 @@ interface SceneProps {
   timeline: React.MutableRefObject<TimelineState>
   /** Called a few times a second so the scrubber's year can follow along. */
   onTimelineTick: () => void
+  /** True while the city is introducing itself — the camera drifts around it. */
+  intro: boolean
+  /** Touching the controls hands the city straight over to the viewer. */
+  onIntroCancel: () => void
   selectedId: number | null
   onSelect: (building: Building) => void
   onDeselect: () => void
@@ -29,6 +33,8 @@ export default function Scene({
   night,
   timeline,
   onTimelineTick,
+  intro,
+  onIntroCancel,
   selectedId,
   onSelect,
   onDeselect,
@@ -150,6 +156,9 @@ export default function Scene({
         makeDefault
         enableDamping
         dampingFactor={0.08}
+        autoRotate={intro}
+        autoRotateSpeed={0.45}
+        onStart={onIntroCancel}
         minDistance={6}
         maxDistance={radius * 4}
         maxPolarAngle={Math.PI / 2.15}

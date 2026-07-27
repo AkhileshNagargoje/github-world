@@ -35,6 +35,7 @@ export default function App() {
   // frame; `timelineTick` is bumped a few times a second just for the scrubber.
   const timeline = useRef(emptyTimeline())
   const [timelineOn, setTimelineOn] = useState(false)
+  const [intro, setIntro] = useState(false)
   const [, setTimelineTick] = useState(0)
   const onTimelineTick = useCallback(() => setTimelineTick((n) => n + 1), [])
 
@@ -103,15 +104,46 @@ export default function App() {
     }
   }, [])
 
-  // A new profile means a new span of history, and the whole city shown again.
+  // A new profile means a new span of history — and the city introduces itself
+  // by building from the first repo forward while the camera drifts around it.
+  // Everything worth seeing here used to sit behind a button nobody pressed.
   useEffect(() => {
     if (!world) return
     const { from, to } = timelineRange(world)
-    timeline.current = { active: false, playing: false, at: to, from, to }
-    setTimelineOn(false)
+    const calm =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    timeline.current = {
+      active: !calm,
+      playing: !calm,
+      at: calm ? to : from,
+      from,
+      to,
+    }
+    setTimelineOn(!calm)
+    setIntro(!calm)
   }, [world])
 
+  /** Stop the intro and hand the city over, whole, to the viewer. */
+  const endIntro = useCallback(() => {
+    if (!intro) return
+    setIntro(false)
+    const state = timeline.current
+    state.active = false
+    state.playing = false
+    state.at = state.to
+    setTimelineOn(false)
+    onTimelineTick()
+  }, [intro, onTimelineTick])
+
+  // The intro is over once playback reaches the present day.
+  useEffect(() => {
+    if (!intro) return
+    const state = timeline.current
+    if (state.active && !state.playing && state.at >= state.to) endIntro()
+  })
+
   const playTimeline = useCallback(() => {
+    setIntro(false)
     const state = timeline.current
     if (!state.active) {
       // Starting fresh: rewind to before the first repo existed.
@@ -127,6 +159,7 @@ export default function App() {
 
   const scrubTimeline = useCallback(
     (progress: number) => {
+      setIntro(false)
       const state = timeline.current
       state.active = true
       state.playing = false
@@ -137,6 +170,7 @@ export default function App() {
   )
 
   const exitTimeline = useCallback(() => {
+    setIntro(false)
     const state = timeline.current
     state.active = false
     state.playing = false
@@ -158,6 +192,8 @@ export default function App() {
           night={night}
           timeline={timeline}
           onTimelineTick={onTimelineTick}
+          intro={intro}
+          onIntroCancel={endIntro}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
           onDeselect={() => setSelected(null)}
