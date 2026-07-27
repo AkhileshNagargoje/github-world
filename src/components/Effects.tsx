@@ -6,7 +6,30 @@ import { BlendFunction } from 'postprocessing'
  * `postprocessing` is a large dependency, and the city renders fine (just
  * flatter) for the moment before it arrives.
  */
-export default function Effects({ night }: { night: boolean }) {
+export default function Effects({
+  night,
+  ambientOcclusion,
+}: {
+  night: boolean
+  /** Off on weak devices — the AO pass is the most expensive thing here. */
+  ambientOcclusion: boolean
+}) {
+  // Makes lit windows, lamps and spires glow — subtle by day, strong at night.
+  // The daytime threshold sits high on purpose: lower, and the pale plots and
+  // driveways pick up a white glow along every street.
+  const bloom = (
+    <Bloom
+      mipmapBlur
+      intensity={night ? 0.85 : 0.22}
+      luminanceThreshold={night ? 0.5 : 0.88}
+      luminanceSmoothing={0.25}
+    />
+  )
+
+  // Two explicit configurations rather than a conditional child: the composer
+  // treats each child as an effect, so a nulled-out one is asking for trouble.
+  if (!ambientOcclusion) return <EffectComposer>{bloom}</EffectComposer>
+
   return (
     <EffectComposer>
       {/* Contact shading where buildings meet the ground and each other —
@@ -24,15 +47,7 @@ export default function Effects({ night }: { night: boolean }) {
         worldProximityFalloff={2}
         fade={0.02}
       />
-      {/* Makes lit windows, lamps and spires glow — subtle by day, strong at
-          night. The daytime threshold sits high on purpose: lower, and the pale
-          kerbs and plots pick up a white glow along every street. */}
-      <Bloom
-        mipmapBlur
-        intensity={night ? 0.85 : 0.22}
-        luminanceThreshold={night ? 0.5 : 0.88}
-        luminanceSmoothing={0.25}
-      />
+      {bloom}
     </EffectComposer>
   )
 }

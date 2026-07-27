@@ -1,8 +1,9 @@
-import { Suspense, lazy, useRef } from 'react'
+import { Suspense, lazy, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, Sky, SoftShadows, Stars } from '@react-three/drei'
+import { OrbitControls, PerformanceMonitor, Sky, SoftShadows, Stars } from '@react-three/drei'
 import type { Building, World } from '../types'
 import { TIMELAPSE_SECONDS, type TimelineState } from '../lib/timeline'
+import { detectTier, settingsFor, type QualityTier } from '../lib/quality'
 import BuildingMesh from './Building'
 import Ground from './Ground'
 import CityDecor from './CityDecor'
@@ -35,6 +36,10 @@ export default function Scene({
   // ground, and bounds the shadow frustum.
   const radius = world.cityRadius
 
+  // Start at a tier matched to the device, then drop if frames actually sag.
+  const [tier, setTier] = useState<QualityTier>(detectTier)
+  const quality = settingsFor(tier)
+
   // Day: soft flat daylight. Night: dim moonlight so the glowing windows,
   // streetlights and spires carry the scene.
   const sunIntensity = night ? 0.45 : 1.6 + world.prosperity * 0.6
@@ -46,7 +51,7 @@ export default function Scene({
     <Canvas
       shadows
       camera={{ position: camStart, fov: 36, near: 0.1, far: 3000 }}
-      dpr={[1, 2]}
+      dpr={quality.dpr}
       // `preserveDrawingBuffer` keeps the last composed frame readable, which is
       // what the postcard export reads back — including bloom and AO, which a
       // plain re-render outside the effect composer would miss.
@@ -57,7 +62,11 @@ export default function Scene({
       }}
       onPointerMissed={onDeselect}
     >
-      <SoftShadows size={24} samples={8} focus={0.85} />
+      {/* Measured framerate, not just a guess about the device: if the city
+          can't hold frame, step down to the cheaper settings. */}
+      <PerformanceMonitor onDecline={() => setTier('low')} />
+
+      <SoftShadows size={24} samples={quality.softShadowSamples} focus={0.85} />
 
       <TimelineDriver timeline={timeline} onTick={onTimelineTick} />
 
@@ -65,7 +74,13 @@ export default function Scene({
       <fog attach="fog" args={[bg, radius * 2.4, radius * 5.5]} />
 
       {night ? (
-        <Stars radius={radius * 3} depth={radius} count={2500} factor={radius * 0.06} fade />
+        <Stars
+          radius={radius * 3}
+          depth={radius}
+          count={quality.starCount}
+          factor={radius * 0.06}
+          fade
+        />
       ) : (
         <Sky
           distance={450000}
@@ -87,8 +102,8 @@ export default function Scene({
         intensity={sunIntensity}
         color={night ? '#9fb4e8' : '#ffffff'}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={quality.shadowMapSize}
+        shadow-mapSize-height={quality.shadowMapSize}
         shadow-bias={-0.0004}
         shadow-camera-left={-radius * 1.6}
         shadow-camera-right={radius * 1.6}
@@ -134,7 +149,7 @@ export default function Scene({
       {/* Ambient occlusion + bloom, loaded lazily so the heavy postprocessing
           bundle doesn't block the first frame of the city. */}
       <Suspense fallback={null}>
-        <Effects night={night} />
+        <Effects night={night} ambientOcclusion={quality.ambientOcclusion} />
       </Suspense>
     </Canvas>
   )
