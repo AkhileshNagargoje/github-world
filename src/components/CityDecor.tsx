@@ -180,20 +180,9 @@ export default function CityDecor({
       {/* Roads */}
       {roads.length > 0 && (
         <>
-          <Instances limit={roads.length} range={roads.length} receiveShadow>
-            <boxGeometry args={[1, 0.04, 1]} />
-            {/* Kept below the bloom threshold — a brighter kerb picked up a
-                white glow along every street. */}
-            <meshStandardMaterial color="#94989e" roughness={1} />
-            {roads.map((r, i) => (
-              <Instance
-                key={i}
-                position={[r.pos[0], 0.02, r.pos[2]]}
-                rotation={[0, r.angle, 0]}
-                scale={[r.length + roadW, 1, roadW * 1.85]}
-              />
-            ))}
-          </Instances>
+          {/* Asphalt only. The pale kerb band that used to flank every road
+              read as a white strip glowing along the streets, so the road is
+              now a single dark ribbon. */}
           <Instances limit={roads.length} range={roads.length} receiveShadow>
             <boxGeometry args={[1, 0.05, 1]} />
             <meshStandardMaterial color="#33363d" roughness={1} />
@@ -202,7 +191,7 @@ export default function CityDecor({
                 key={i}
                 position={[r.pos[0], 0.035, r.pos[2]]}
                 rotation={[0, r.angle, 0]}
-                scale={[r.length, 1, roadW]}
+                scale={[r.length + roadW, 1, roadW]}
               />
             ))}
           </Instances>

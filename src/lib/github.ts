@@ -702,7 +702,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v12:'
+const CACHE_PREFIX = 'ghw:world:v13:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 
@@ -720,8 +720,25 @@ export function readCachedWorld(username: string): CachedWorld | null {
   }
 }
 
+/** Drop worlds cached by an earlier version — they'd never be read again. */
+function dropStaleCacheVersions(): void {
+  try {
+    const stale: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('ghw:world:') && !key.startsWith(CACHE_PREFIX)) {
+        stale.push(key)
+      }
+    }
+    stale.forEach((key) => localStorage.removeItem(key))
+  } catch {
+    // Private-mode errors are non-fatal.
+  }
+}
+
 function writeCachedWorld(username: string, world: World): void {
   try {
+    dropStaleCacheVersions()
     localStorage.setItem(
       CACHE_PREFIX + username.trim().toLowerCase(),
       JSON.stringify({ ts: Date.now(), world }),
