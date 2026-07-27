@@ -5,6 +5,7 @@ import InfoPanel from './components/InfoPanel'
 import ProfileBadge from './components/ProfileBadge'
 import Legend from './components/Legend'
 import TokenPanel from './components/TokenPanel'
+import { downloadPostcard, renderPostcard } from './lib/postcard'
 import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
 import type { Building, World } from './types'
 
@@ -27,6 +28,7 @@ export default function App() {
   const [showLegend, setShowLegend] = useState(false)
   const [showToken, setShowToken] = useState(false)
   const [shared, setShared] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async (name: string) => {
     setError(null)
@@ -68,6 +70,19 @@ export default function App() {
       setLoading(false)
     }
   }, [])
+
+  /** Save the city on screen as a PNG, captioned with the profile's numbers. */
+  const savePostcard = useCallback(async () => {
+    if (!world) return
+    setSaving(true)
+    try {
+      const postcard = await renderPostcard(world)
+      if (postcard) downloadPostcard(postcard)
+      else setError('Could not capture the city — try again once it has rendered.')
+    } finally {
+      setSaving(false)
+    }
+  }, [world])
 
   /** Copy the permalink to this city, so a profile can be shared as a link. */
   const share = useCallback(async () => {
@@ -126,6 +141,15 @@ export default function App() {
           title="Add a GitHub token to lift the rate limit"
         >
           🔑
+        </button>
+        <button
+          className="legend-btn"
+          onClick={savePostcard}
+          disabled={!world || saving}
+          aria-label="Save this city as an image"
+          title="Save this city as an image"
+        >
+          {saving ? '…' : '📸'}
         </button>
         <button
           className="legend-btn"

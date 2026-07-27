@@ -40,7 +40,14 @@ export default function Scene({
       shadows
       camera={{ position: camStart, fov: 36, near: 0.1, far: 3000 }}
       dpr={[1, 2]}
-      gl={{ antialias: true, toneMappingExposure: night ? 1.15 : 1.05 }}
+      // `preserveDrawingBuffer` keeps the last composed frame readable, which is
+      // what the postcard export reads back — including bloom and AO, which a
+      // plain re-render outside the effect composer would miss.
+      gl={{
+        antialias: true,
+        preserveDrawingBuffer: true,
+        toneMappingExposure: night ? 1.15 : 1.05,
+      }}
       onPointerMissed={onDeselect}
     >
       <SoftShadows size={24} samples={8} focus={0.85} />
