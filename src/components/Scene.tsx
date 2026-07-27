@@ -117,8 +117,8 @@ export default function Scene({
       <EffectComposer>
         <Bloom
           mipmapBlur
-          intensity={night ? 0.85 : 0.25}
-          luminanceThreshold={night ? 0.5 : 0.72}
+          intensity={night ? 0.85 : 0.22}
+          luminanceThreshold={night ? 0.5 : 0.88}
           luminanceSmoothing={0.25}
         />
       </EffectComposer>

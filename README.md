@@ -2,7 +2,7 @@
 
 **Type any GitHub username and explore that profile as a low-poly 3D city.**
 
-The more active and celebrated the account, the bigger and richer its world. Repos become buildings — height = code size, stars = a gold spire, popularity = a glowing ground halo, recent activity = lit windows and a construction crane. The top repo becomes a landmark monument in the city center.
+The more active and celebrated the account, the bigger and richer its world. Repos become buildings — height = code size, stars = a gold spire, recent activity = lit windows and a construction crane. The top repo becomes a landmark monument in the city center.
 
 Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/pmndrs/react-three-fiber). No API keys, no backend — it reads GitHub's public REST API straight from the browser.
 
@@ -13,8 +13,8 @@ Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/
 | GitHub stat | World effect |
 | --- | --- |
 | Repo code size (KB) | Building **height** — more code = taller |
-| Stars | Gold **spire** on the roof + golden **ground halo** |
-| Forks | Contributes to halo radius (popularity) |
+| Stars | Gold **spire** on the roof — taller = more stars |
+| Forks | Sets the building **footprint** (wider = more forked) |
 | Recent commits | **Window glow** — brighter when actively worked on |
 | Pushed within last 60 days | Construction **crane** on the roof ("under construction") |
 | Archived / stale repo | Dark windows ("finished building") |

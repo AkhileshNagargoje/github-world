@@ -182,7 +182,9 @@ export default function CityDecor({
         <>
           <Instances limit={roads.length} range={roads.length} receiveShadow>
             <boxGeometry args={[1, 0.04, 1]} />
-            <meshStandardMaterial color="#b7b9be" roughness={1} />
+            {/* Kept below the bloom threshold — a brighter kerb picked up a
+                white glow along every street. */}
+            <meshStandardMaterial color="#94989e" roughness={1} />
             {roads.map((r, i) => (
               <Instance
                 key={i}

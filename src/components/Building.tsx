@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import type { Building as BuildingModel } from '../types'
@@ -18,7 +17,7 @@ const GOLD = '#ffd23f'
 /**
  * One repo, rendered as a low-poly city block: a color-tinted tower with
  * procedural windows whose interior light reflects how actively the project is
- * worked on, a door, an optional star-spire + ground halo (prestige), a crane
+ * worked on, a door, an optional star-spire (prestige), a crane
  * for repos under construction, and balconies on the central landmark.
  */
 export default function Building({ building, selected, night, onSelect }: BuildingProps) {
@@ -34,7 +33,6 @@ export default function Building({ building, selected, night, onSelect }: Buildi
     active,
     landmark,
     stars,
-    forks,
     windowLight,
   } = building
   const maxFoot = Math.max(footprint, depth)
@@ -68,10 +66,8 @@ export default function Building({ building, selected, night, onSelect }: Buildi
   const emissiveIntensity =
     windowLight * (night ? 2.2 : 1.15) + (selected ? 0.7 : 0) + (hovered ? 0.4 : 0)
 
-  // Prestige: taller gold spire = more stars; wider halo = more stars + forks.
+  // Prestige: taller gold spire = more stars.
   const spireHeight = stars > 0 ? Math.min(6, Math.log2(stars + 1) * 0.9) : 0
-  const haloRadius =
-    stars + forks > 0 ? maxFoot * 0.75 + Math.log2(stars + forks + 1) * 0.35 : 0
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -96,12 +92,12 @@ export default function Building({ building, selected, night, onSelect }: Buildi
         {/* Sidewalk plot plus a short path to the nearest street. */}
         <mesh position={[0, 0.035, 0]} receiveShadow>
           <boxGeometry args={[plotW, 0.06, plotD]} />
-          <meshStandardMaterial color="#a9adb3" roughness={1} />
+          <meshStandardMaterial color="#8f949b" roughness={1} />
         </mesh>
         {connectorLength > 0 && (
           <mesh position={[0, 0.04, plotD * 0.5 + connectorLength * 0.5]} receiveShadow>
             <boxGeometry args={[connectorWidth, 0.055, connectorLength]} />
-            <meshStandardMaterial color="#9fa4ac" roughness={1} />
+            <meshStandardMaterial color="#878d95" roughness={1} />
           </mesh>
         )}
 
@@ -144,19 +140,6 @@ export default function Building({ building, selected, night, onSelect }: Buildi
           <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <ringGeometry args={[maxFoot * 0.62, maxFoot * 0.82, 4]} />
             <meshBasicMaterial color={selected ? GOLD : '#ffffff'} />
-          </mesh>
-        )}
-
-        {/* Prestige halo — famous repos get a golden ring of light on the ground */}
-        {haloRadius > 0 && (
-          <mesh position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[haloRadius * 0.82, haloRadius, 24]} />
-            <meshBasicMaterial
-              color={GOLD}
-              transparent
-              opacity={0.45}
-              side={THREE.DoubleSide}
-            />
           </mesh>
         )}
 

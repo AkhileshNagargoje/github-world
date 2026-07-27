@@ -157,43 +157,79 @@ function strSeed(str: string): number {
  * jitter so the layout reads as a planned city, not a perfect spreadsheet.
  */
 interface LayoutSlot {
+  /** Index of the block this plot fronts, so empty blocks can be dropped. */
+  block: number
   roadPoint: [number, number]
   roadDir: [number, number]
   roadNormal: [number, number]
 }
 
+/** One rotated rectangular city block. */
+interface Block {
+  center: [number, number]
+  u: [number, number]
+  v: [number, number]
+  width: number
+  depth: number
+  corners: [number, number][]
+}
+
+/** A street around a block's perimeter, tagged with the block it belongs to. */
+interface BlockRoad extends CityRoad {
+  block: number
+}
+
+/** A street joining two blocks, tagged with both so it can be pruned with them. */
+interface ConnectorRoad extends CityRoad {
+  i: number
+  j: number
+}
+
 interface CityLayout {
   slots: LayoutSlot[]
-  roads: CityRoad[]
+  perimeter: BlockRoad[]
+  blocks: Block[]
+}
+
+/** Where the line from a block's center toward `target` leaves the block. */
+function boundaryPoint(block: Block, target: [number, number]): [number, number] {
+  const dx = target[0] - block.center[0]
+  const dz = target[1] - block.center[1]
+  const len = Math.hypot(dx, dz) || 1
+  const dir: [number, number] = [dx / len, dz / len]
+  const du = Math.abs(dir[0] * block.u[0] + dir[1] * block.u[1])
+  const dv = Math.abs(dir[0] * block.v[0] + dir[1] * block.v[1])
+  const tu = du > 0.0001 ? block.width / 2 / du : Infinity
+  const tv = dv > 0.0001 ? block.depth / 2 / dv : Infinity
+  const t = Math.min(tu, tv)
+  return [block.center[0] + dir[0] * t, block.center[1] + dir[1] * t]
 }
 
 /** Street width as a multiple of `spacing` — shared by the layout and the renderer. */
 export const ROAD_WIDTH_RATIO = 0.34
-/** Roughly 6 buildings front each city block, leaving spare plots to skip to. */
+/**
+ * Each block fronts ~16-30 plots around its perimeter (both kerbs). Asking for
+ * roughly one block per 16 repos leaves a little room to skip a bad fit without
+ * generating whole blocks that no building ever occupies.
+ */
 export function blockCountFor(count: number): number {
-  return Math.max(1, Math.ceil(count / 6))
+  return Math.max(1, Math.ceil(count / 12))
 }
-// Blocks are up to `spacing * 6.4` wide and `spacing * 5.3` deep, so their half
-// diagonal reaches ~`spacing * 4.15`. Centers must sit farther apart than twice
-// that or the block outlines intersect — which used to collapse the connecting
-// roads between them to zero length, fragmenting the network.
-// (Plus room for the plots that face outward from each block.)
-const BLOCK_GAP = 9.8
-const BLOCK_RING = 9.2
+// Gap left between two block outlines: a street, plus the plots that face
+// outward from each of them. Blocks are packed as tightly as this allows, so
+// the city reads as a built-up whole rather than islands joined by long roads.
+const BLOCK_MARGIN = 2.7
+const BLOCK_RING = 5.4
 
-function organicCityLayout(
-  count: number,
-  radius: number,
-  spacing: number,
-  rng: () => number,
-): CityLayout {
-  if (count <= 0) return { slots: [], roads: [] }
+function organicCityLayout(count: number, spacing: number, rng: () => number): CityLayout {
+  if (count <= 0) return { slots: [], perimeter: [], blocks: [] }
 
-  const roads: CityRoad[] = []
+  const perimeter: BlockRoad[] = []
   const candidates: (LayoutSlot & { rank: number })[] = []
   const blockCount = blockCountFor(count)
 
   const addCandidate = (
+    block: number,
     roadPoint: [number, number],
     roadDir: [number, number],
     roadNormal: [number, number],
@@ -201,20 +237,7 @@ function organicCityLayout(
   ) => {
     const rank =
       Math.hypot(roadPoint[0], roadPoint[1]) + rng() * spacing * 1.8 + rankPenalty
-    candidates.push({ roadPoint, roadDir, roadNormal, rank })
-  }
-
-  const addRoadSegment = (a: [number, number], b: [number, number]) => {
-    roads.push({ a, b })
-  }
-
-  interface Block {
-    center: [number, number]
-    u: [number, number]
-    v: [number, number]
-    width: number
-    depth: number
-    corners: [number, number][]
+    candidates.push({ block, roadPoint, roadDir, roadNormal, rank })
   }
 
   const blocks: Block[] = []
@@ -242,48 +265,53 @@ function organicCityLayout(
     }
   }
 
+  // True separation between two rotated rectangles (separating-axis test), so
+  // blocks can nestle right up against their neighbours at any angle. Comparing
+  // center distances instead forced them a whole diagonal apart and left the
+  // city looking like islands strung together.
+  const blocksClear = (a: Block, b: Block, margin: number) => {
+    const dx = b.center[0] - a.center[0]
+    const dz = b.center[1] - a.center[1]
+    const reach = (block: Block, axis: [number, number]) =>
+      Math.abs(block.u[0] * axis[0] + block.u[1] * axis[1]) * block.width * 0.5 +
+      Math.abs(block.v[0] * axis[0] + block.v[1] * axis[1]) * block.depth * 0.5
+    for (const axis of [a.u, a.v, b.u, b.v]) {
+      const gap = Math.abs(dx * axis[0] + dz * axis[1]) - reach(a, axis) - reach(b, axis)
+      if (gap > margin) return true
+    }
+    return false
+  }
+
   for (let i = 0; i < blockCount; i++) {
-    let center: [number, number] = [0, 0]
+    let placedBlock = makeBlock([0, 0], i)
     if (i > 0) {
-      // Walk outward on a phyllotaxis spiral, growing the ring on every failed
-      // attempt so a block always lands clear of the ones already placed.
-      for (let attempt = 0; attempt < 40; attempt++) {
-        const ring = spacing * BLOCK_RING * Math.sqrt(i) * (1 + attempt * 0.06)
+      // Walk outward on a phyllotaxis spiral, nudging the ring outward on each
+      // failed attempt until the block clears the ones already placed.
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const ring = spacing * BLOCK_RING * Math.sqrt(i) * (1 + attempt * 0.04)
         const angle = i * 2.399963 + rng() * 0.5
-        center = [
-          Math.cos(angle) * ring + (rng() - 0.5) * spacing,
-          Math.sin(angle) * ring + (rng() - 0.5) * spacing,
-        ]
-        const clear = blocks.every(
-          (block) =>
-            Math.hypot(center[0] - block.center[0], center[1] - block.center[1]) >
-            spacing * BLOCK_GAP,
+        placedBlock = makeBlock(
+          [
+            Math.cos(angle) * ring + (rng() - 0.5) * spacing,
+            Math.sin(angle) * ring + (rng() - 0.5) * spacing,
+          ],
+          i,
         )
-        if (clear) break
+        if (blocks.every((block) => blocksClear(placedBlock, block, spacing * BLOCK_MARGIN))) {
+          break
+        }
       }
     }
-    blocks.push(makeBlock(center, i))
+    blocks.push(placedBlock)
   }
 
-  const boundaryPoint = (block: Block, target: [number, number]): [number, number] => {
-    const dx = target[0] - block.center[0]
-    const dz = target[1] - block.center[1]
-    const len = Math.hypot(dx, dz) || 1
-    const dir: [number, number] = [dx / len, dz / len]
-    const du = Math.abs(dir[0] * block.u[0] + dir[1] * block.u[1])
-    const dv = Math.abs(dir[0] * block.v[0] + dir[1] * block.v[1])
-    const tu = du > 0.0001 ? block.width / 2 / du : Infinity
-    const tv = dv > 0.0001 ? block.depth / 2 / dv : Infinity
-    const t = Math.min(tu, tv)
-    return [block.center[0] + dir[0] * t, block.center[1] + dir[1] * t]
-  }
-
-  for (const block of blocks) {
+  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+    const block = blocks[blockIndex]
     const corners = block.corners
     for (let edgeIndex = 0; edgeIndex < corners.length; edgeIndex++) {
       const a = corners[edgeIndex]
       const b = corners[(edgeIndex + 1) % corners.length]
-      addRoadSegment(a, b)
+      perimeter.push({ a, b, block: blockIndex })
 
       const dx = b[0] - a[0]
       const dz = b[1] - a[1]
@@ -302,61 +330,16 @@ function organicCityLayout(
         ]
         // A plot on each side of the street: real blocks are built up on both
         // kerbs, and the spare plots give the placer room to skip a bad fit.
-        addCandidate(point, roadDir, roadNormal)
-        addCandidate(point, roadDir, [-roadNormal[0], -roadNormal[1]], spacing * 2.5)
+        addCandidate(blockIndex, point, roadDir, roadNormal)
+        addCandidate(
+          blockIndex,
+          point,
+          roadDir,
+          [-roadNormal[0], -roadNormal[1]],
+          spacing * 2.5,
+        )
       }
     }
-  }
-
-  // Link the blocks with a minimum spanning tree over their centers, so every
-  // block — and therefore every building fronting it — is reachable by road.
-  // (Connecting each block only to the nearest *earlier* one left long detours
-  // and, when two blocks overlapped, zero-length stubs that vanished entirely.)
-  const blockDistance = (i: number, j: number) =>
-    Math.hypot(
-      blocks[i].center[0] - blocks[j].center[0],
-      blocks[i].center[1] - blocks[j].center[1],
-    )
-  const connect = (i: number, j: number) => {
-    const a = boundaryPoint(blocks[i], blocks[j].center)
-    const b = boundaryPoint(blocks[j], blocks[i].center)
-    // With BLOCK_GAP separation this is always a real street; the guard just
-    // stops a degenerate stub from ever reaching the renderer.
-    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < spacing * 0.25) return
-    addRoadSegment(a, b)
-  }
-
-  const linked = new Set<number>([0])
-  while (linked.size < blocks.length) {
-    let bestFrom = 0
-    let bestTo = -1
-    let bestDistance = Infinity
-    for (const i of linked) {
-      for (let j = 0; j < blocks.length; j++) {
-        if (linked.has(j)) continue
-        const d = blockDistance(i, j)
-        if (d < bestDistance) {
-          bestDistance = d
-          bestFrom = i
-          bestTo = j
-        }
-      }
-    }
-    if (bestTo < 0) break
-    connect(bestFrom, bestTo)
-    linked.add(bestTo)
-  }
-
-  // A tree alone reads as a branching diagram; add a few short extra links so
-  // the network has loops like a real street grid.
-  const extraLinks = Math.floor(blocks.length / 3)
-  const pairs: { i: number; j: number; d: number }[] = []
-  for (let i = 0; i < blocks.length; i++) {
-    for (let j = i + 1; j < blocks.length; j++) pairs.push({ i, j, d: blockDistance(i, j) })
-  }
-  pairs.sort((a, b) => a.d - b.d)
-  for (const pair of pairs.slice(blocks.length - 1, blocks.length - 1 + extraLinks)) {
-    connect(pair.i, pair.j)
   }
 
   // Keep every well-separated plot, not just the first `count` — buildWorld
@@ -390,29 +373,63 @@ function organicCityLayout(
     slots.push(spare)
   }
 
-  // Keep all plots inside the island even for very large profiles.
-  const maxDist = Math.max(
-    1,
-    ...slots.map((slot) => Math.hypot(...slot.roadPoint)),
-    ...roads.flatMap((road) => [Math.hypot(...road.a), Math.hypot(...road.b)]),
-  )
-  if (maxDist > radius * 0.9) {
-    const scale = (radius * 0.9) / maxDist
-    const scaledRoads: CityRoad[] = roads.map((road) => ({
-      a: [road.a[0] * scale, road.a[1] * scale] as [number, number],
-      b: [road.b[0] * scale, road.b[1] * scale] as [number, number],
-    }))
-    return {
-      slots: slots.map(({ roadPoint, roadDir, roadNormal }) => ({
-        roadPoint: [roadPoint[0] * scale, roadPoint[1] * scale],
-        roadDir,
-        roadNormal,
-      })),
-      roads: scaledRoads,
-    }
+  return { slots, perimeter, blocks }
+}
+
+/**
+ * Streets joining the blocks that actually got built on: a minimum spanning
+ * tree over their centers (so every block is reachable) plus a few extra short
+ * links, so the network has loops instead of reading as a branching diagram.
+ */
+function connectBlocks(blocks: Block[], used: number[], spacing: number): ConnectorRoad[] {
+  if (used.length < 2) return []
+  const roads: ConnectorRoad[] = []
+  const distance = (i: number, j: number) =>
+    Math.hypot(
+      blocks[i].center[0] - blocks[j].center[0],
+      blocks[i].center[1] - blocks[j].center[1],
+    )
+  const connect = (i: number, j: number) => {
+    const a = boundaryPoint(blocks[i], blocks[j].center)
+    const b = boundaryPoint(blocks[j], blocks[i].center)
+    // Tightly packed blocks can share an edge, leaving nothing to draw.
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < spacing * 0.2) return
+    roads.push({ a, b, i, j })
   }
 
-  return { slots, roads }
+  const linked = new Set<number>([used[0]])
+  while (linked.size < used.length) {
+    let from = used[0]
+    let to = -1
+    let best = Infinity
+    for (const i of linked) {
+      for (const j of used) {
+        if (linked.has(j)) continue
+        const d = distance(i, j)
+        if (d < best) {
+          best = d
+          from = i
+          to = j
+        }
+      }
+    }
+    if (to < 0) break
+    connect(from, to)
+    linked.add(to)
+  }
+
+  const pairs: { i: number; j: number; d: number }[] = []
+  for (let a = 0; a < used.length; a++) {
+    for (let b = a + 1; b < used.length; b++) {
+      pairs.push({ i: used[a], j: used[b], d: distance(used[a], used[b]) })
+    }
+  }
+  pairs.sort((x, y) => x.d - y.d)
+  const extras = Math.floor(used.length / 3)
+  for (const pair of pairs.slice(used.length - 1, used.length - 1 + extras)) {
+    connect(pair.i, pair.j)
+  }
+  return roads
 }
 
 // Building height range (world units). The most significant repo reaches
@@ -455,30 +472,21 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
   // Radius the buildings scatter across (no filler city — just the repos,
   // spread out so some sit near the center and some out at the edges).
   const count = scored.length
-  // The island has to hold the whole block layout, otherwise the layout gets
-  // scaled down to fit and the streets end up narrower than the buildings.
-  const blockReach =
-    spacing * (BLOCK_RING * Math.sqrt(Math.max(0, blockCountFor(count) - 1)) + 4.4)
-  const cityRadius = Math.max(
-    spacing * (2.25 * Math.sqrt(Math.max(1, count)) + 4),
-    blockReach / 0.88,
-  )
-  const layout = organicCityLayout(
-    count,
-    cityRadius,
-    spacing,
-    makeRng(strSeed(user.login)),
-  )
+  const layout = organicCityLayout(count, spacing, makeRng(strSeed(user.login)))
   const positions = layout.slots
   // Plots are claimed biggest-repo-first: each building takes the most central
   // free plot it actually fits on, so wide towers never end up overlapping the
   // neighbour that shares their block corner.
   const takenSlots = new Set<number>()
+  const occupiedBlocks = new Set<number>()
   const placed: { x: number; z: number; radius: number }[] = []
   const roadWidth = spacing * ROAD_WIDTH_RATIO
-  // Street segments, so a plot never gets chosen where the building body would
-  // stand in a road crossing behind or beside its own street.
-  const roadSegs = layout.roads
+  // Every street is laid out before any building is placed, so a plot is never
+  // chosen where the building body would stand in a road crossing behind or
+  // beside its own street.
+  const allBlocks = layout.blocks.map((_, index) => index)
+  const connectors = connectBlocks(layout.blocks, allBlocks, spacing)
+  const roadSegs = [...layout.perimeter, ...connectors]
     .map(({ a, b }) => ({ a, b, length: Math.hypot(b[0] - a[0], b[1] - a[1]) }))
     .filter((seg) => seg.length >= 0.05)
   const distToRoad = (x: number, z: number, seg: (typeof roadSegs)[number]) => {
@@ -565,6 +573,7 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     takenSlots.add(chosen)
 
     const plot = positions[chosen]
+    occupiedBlocks.add(plot.block)
     const faceRoadAngle = Math.atan2(-plot.roadNormal[0], -plot.roadNormal[1])
     const rotationY = landmark ? faceRoadAngle : faceRoadAngle + (rnd(2) - 0.5) * 0.16
     const position = positionFor(plot)
@@ -627,10 +636,42 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     if (!moved) break
   }
 
+  // Drop blocks no building ended up on — an empty block is just a rectangle of
+  // road sitting in the grass. Only blocks hanging off the end of the network
+  // are removed, so pruning can never split the streets into islands.
+  const occupied = occupiedBlocks
+  const keptBlocks = new Set(allBlocks)
+  let keptConnectors = connectors
+  for (let pass = 0; pass < layout.blocks.length; pass++) {
+    const leaf = [...keptBlocks].find(
+      (index) =>
+        !occupied.has(index) &&
+        keptConnectors.filter((road) => road.i === index || road.j === index).length <= 1,
+    )
+    if (leaf === undefined) break
+    keptBlocks.delete(leaf)
+    keptConnectors = keptConnectors.filter((road) => road.i !== leaf && road.j !== leaf)
+  }
+  const roads: CityRoad[] = [
+    ...layout.perimeter
+      .filter((road) => keptBlocks.has(road.block))
+      .map(({ a, b }) => ({ a, b })),
+    ...keptConnectors.map(({ a, b }) => ({ a, b })),
+  ]
+
+  // Size the island from what the layout actually came out as, so the city
+  // neither overflows the coastline nor floats in a sea of empty grass.
+  const reach = Math.max(
+    spacing * 5,
+    ...buildings.map((b) => Math.hypot(...b.position) + Math.max(b.footprint, b.depth)),
+    ...roads.flatMap((road) => [Math.hypot(...road.a), Math.hypot(...road.b)]),
+  )
+  const cityRadius = reach * 1.18 + spacing * 2
+
   return {
     user,
     buildings,
-    roads: layout.roads,
+    roads,
     prosperity,
     totalStars,
     accountAgeYears,
