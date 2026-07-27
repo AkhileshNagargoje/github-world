@@ -1,7 +1,8 @@
-import { Suspense, lazy } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Suspense, lazy, useRef } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Sky, SoftShadows, Stars } from '@react-three/drei'
 import type { Building, World } from '../types'
+import { TIMELAPSE_SECONDS, type TimelineState } from '../lib/timeline'
 import BuildingMesh from './Building'
 import Ground from './Ground'
 import CityDecor from './CityDecor'
@@ -11,6 +12,10 @@ const Effects = lazy(() => import('./Effects'))
 interface SceneProps {
   world: World
   night: boolean
+  /** Time-lapse state, mutated in the render loop rather than in React state. */
+  timeline: React.MutableRefObject<TimelineState>
+  /** Called a few times a second so the scrubber's year can follow along. */
+  onTimelineTick: () => void
   selectedId: number | null
   onSelect: (building: Building) => void
   onDeselect: () => void
@@ -20,6 +25,8 @@ interface SceneProps {
 export default function Scene({
   world,
   night,
+  timeline,
+  onTimelineTick,
   selectedId,
   onSelect,
   onDeselect,
@@ -51,6 +58,8 @@ export default function Scene({
       onPointerMissed={onDeselect}
     >
       <SoftShadows size={24} samples={8} focus={0.85} />
+
+      <TimelineDriver timeline={timeline} onTick={onTimelineTick} />
 
       <color attach="background" args={[bg]} />
       <fog attach="fog" args={[bg, radius * 2.4, radius * 5.5]} />
@@ -105,6 +114,7 @@ export default function Scene({
         <BuildingMesh
           key={b.id}
           building={b}
+          timeline={timeline}
           selected={b.id === selectedId}
           night={night}
           onSelect={onSelect}
@@ -128,4 +138,36 @@ export default function Scene({
       </Suspense>
     </Canvas>
   )
+}
+
+/**
+ * Advances the time-lapse inside the render loop. Buildings read the same ref
+ * directly, so a playing city costs no React renders — only the year label is
+ * pushed back out, a few times a second.
+ */
+function TimelineDriver({
+  timeline,
+  onTick,
+}: {
+  timeline: React.MutableRefObject<TimelineState>
+  onTick: () => void
+}) {
+  const sinceTick = useRef(0)
+  useFrame((_, delta) => {
+    const state = timeline.current
+    if (!state.active || !state.playing) return
+    const span = state.to - state.from
+    state.at = Math.min(state.to, state.at + (span / TIMELAPSE_SECONDS) * delta)
+    if (state.at >= state.to) {
+      state.playing = false
+      onTick()
+      return
+    }
+    sinceTick.current += delta
+    if (sinceTick.current > 0.2) {
+      sinceTick.current = 0
+      onTick()
+    }
+  })
+  return null
 }

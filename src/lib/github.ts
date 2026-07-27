@@ -485,6 +485,7 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
       active: isActive(repo),
       windowLight: windowLightLevel(repo),
       landmark,
+      createdAt: repo.created_at,
       roof: roofFor(landmark, finalHeight, rnd(7)),
       starred: spired.has(repo.id),
       position,
@@ -570,7 +571,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v16:'
+const CACHE_PREFIX = 'ghw:world:v17:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

@@ -42,6 +42,8 @@ function makeRepos(count: number, seed = 1): GitHubRepo[] {
     size: Math.floor(rnd() ** 2.2 * 140000) + 5,
     archived: rnd() < 0.15,
     fork: false,
+    // Spread creation across a decade so the time-lapse has something to show.
+    created_at: `${2014 + (i % 12)}-0${1 + (i % 9)}-01T00:00:00Z`,
     pushed_at: '2026-03-01T00:00:00Z',
     updated_at: '2026-07-01T00:00:00Z',
   }))

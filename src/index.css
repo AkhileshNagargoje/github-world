@@ -528,3 +528,60 @@ body {
 .token-clear:hover {
   color: var(--text);
 }
+
+/* --- Time-lapse scrubber ---------------------------------------------------- */
+
+.timeline {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(460px, 92vw);
+  padding: 10px 14px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  animation: slideIn 0.16s ease;
+}
+
+.timeline-play,
+.timeline-exit {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--panel-border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.timeline-play:hover,
+.timeline-exit:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.timeline-year {
+  flex: none;
+  min-width: 4ch;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.timeline-range {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

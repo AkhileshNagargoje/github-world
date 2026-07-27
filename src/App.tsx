@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Scene from './components/Scene'
 import UsernameInput from './components/UsernameInput'
 import InfoPanel from './components/InfoPanel'
@@ -6,6 +6,8 @@ import ProfileBadge from './components/ProfileBadge'
 import Legend from './components/Legend'
 import TokenPanel from './components/TokenPanel'
 import { downloadPostcard, renderPostcard } from './lib/postcard'
+import Timeline from './components/Timeline'
+import { emptyTimeline, timelineRange, yearAt } from './lib/timeline'
 import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
 import type { Building, World } from './types'
 
@@ -29,6 +31,12 @@ export default function App() {
   const [showToken, setShowToken] = useState(false)
   const [shared, setShared] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Time-lapse state lives in a ref so playback doesn't re-render the city each
+  // frame; `timelineTick` is bumped a few times a second just for the scrubber.
+  const timeline = useRef(emptyTimeline())
+  const [timelineOn, setTimelineOn] = useState(false)
+  const [, setTimelineTick] = useState(0)
+  const onTimelineTick = useCallback(() => setTimelineTick((n) => n + 1), [])
 
   const load = useCallback(async (name: string) => {
     setError(null)
@@ -95,6 +103,48 @@ export default function App() {
     }
   }, [])
 
+  // A new profile means a new span of history, and the whole city shown again.
+  useEffect(() => {
+    if (!world) return
+    const { from, to } = timelineRange(world)
+    timeline.current = { active: false, playing: false, at: to, from, to }
+    setTimelineOn(false)
+  }, [world])
+
+  const playTimeline = useCallback(() => {
+    const state = timeline.current
+    if (!state.active) {
+      // Starting fresh: rewind to before the first repo existed.
+      state.active = true
+      state.at = state.from
+    } else if (state.at >= state.to) {
+      state.at = state.from
+    }
+    state.playing = !state.playing
+    setTimelineOn(true)
+    onTimelineTick()
+  }, [onTimelineTick])
+
+  const scrubTimeline = useCallback(
+    (progress: number) => {
+      const state = timeline.current
+      state.active = true
+      state.playing = false
+      state.at = state.from + (state.to - state.from) * progress
+      onTimelineTick()
+    },
+    [onTimelineTick],
+  )
+
+  const exitTimeline = useCallback(() => {
+    const state = timeline.current
+    state.active = false
+    state.playing = false
+    state.at = state.to
+    setTimelineOn(false)
+    onTimelineTick()
+  }, [onTimelineTick])
+
   // Auto-load the URL's username (or the default) on first mount.
   useEffect(() => {
     load(usernameFromUrl())
@@ -106,6 +156,8 @@ export default function App() {
         <Scene
           world={world}
           night={night}
+          timeline={timeline}
+          onTimelineTick={onTimelineTick}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
           onDeselect={() => setSelected(null)}
@@ -141,6 +193,15 @@ export default function App() {
           title="Add a GitHub token to lift the rate limit"
         >
           🔑
+        </button>
+        <button
+          className="legend-btn"
+          onClick={playTimeline}
+          disabled={!world}
+          aria-label="Play the city's history"
+          title="Watch the city get built, repo by repo"
+        >
+          ⏱
         </button>
         <button
           className="legend-btn"
@@ -185,6 +246,23 @@ export default function App() {
 
       {selected && (
         <InfoPanel building={selected} onClose={() => setSelected(null)} />
+      )}
+
+      {world && (
+        <Timeline
+          visible={timelineOn}
+          playing={timeline.current.playing}
+          progress={
+            (timeline.current.at - timeline.current.from) /
+            Math.max(1, timeline.current.to - timeline.current.from)
+          }
+          year={yearAt(timeline.current.at)}
+          fromYear={yearAt(timeline.current.from)}
+          toYear={yearAt(timeline.current.to)}
+          onPlayPause={playTimeline}
+          onScrub={scrubTimeline}
+          onExit={exitTimeline}
+        />
       )}
 
       <Legend visible={showLegend} onClose={() => setShowLegend(false)} />

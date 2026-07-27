@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react'
-import type { ThreeEvent } from '@react-three/fiber'
+import { useMemo, useRef, useState } from 'react'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import type * as THREE from 'three'
 import { Text } from '@react-three/drei'
 import type { Building as BuildingModel } from '../types'
 import { getTiledWindowTextures } from '../lib/buildingTextures'
+import { easeOut, growthAt, type TimelineState } from '../lib/timeline'
 
 interface BuildingProps {
   building: BuildingModel
+  /** Shared time-lapse state; read per frame so playback costs no re-renders. */
+  timeline: React.MutableRefObject<TimelineState>
   selected: boolean
   night: boolean
   onSelect: (building: BuildingModel) => void
@@ -20,7 +24,7 @@ const GOLD = '#ffd23f'
  * worked on, a door, an optional star-spire (prestige), a crane
  * for repos under construction, and balconies on the central landmark.
  */
-export default function Building({ building, selected, night, onSelect }: BuildingProps) {
+export default function Building({ building, timeline, selected, night, onSelect }: BuildingProps) {
   const [hovered, setHovered] = useState(false)
   const [x, z] = building.position
   const {
@@ -82,6 +86,19 @@ export default function Building({ building, selected, night, onSelect }: Buildi
   const doorH = Math.min(1.1, height * 0.28)
   const doorW = Math.min(footprint * 0.34, 0.9)
 
+  // The building rises out of the ground when the time-lapse reaches the date
+  // its repo was created, and is hidden before that.
+  const risen = useRef<THREE.Group>(null)
+  const createdMs = useMemo(() => new Date(building.createdAt).getTime(), [building.createdAt])
+  useFrame(() => {
+    const group = risen.current
+    if (!group) return
+    const grown = growthAt(timeline.current, createdMs)
+    const scale = grown <= 0 ? 0 : easeOut(grown)
+    group.visible = scale > 0.001
+    group.scale.set(1, Math.max(0.001, scale), 1)
+  })
+
   // Whatever sits on the roof (spire, beacon, crane) has to start above it.
   const roofTop =
     roof === 'pitched'
@@ -94,7 +111,7 @@ export default function Building({ building, selected, night, onSelect }: Buildi
 
   return (
     <group position={[x, 0, z]}>
-      <group rotation={[0, rotationY, 0]}>
+      <group ref={risen} rotation={[0, rotationY, 0]}>
         {/* Sidewalk plot plus a short path to the nearest street. */}
         <mesh position={[0, 0.035, 0]} receiveShadow>
           <boxGeometry args={[plotW, 0.06, plotD]} />
