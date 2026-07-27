@@ -122,7 +122,7 @@ src/
 |---|---|
 | What makes buildings tall | `SIGNAL_WEIGHTS` in `src/lib/github.ts` |
 | Building color scheme | `REPO_SHADES` in `src/lib/github.ts` |
-| How spread out buildings are | `spacing`, `BLOCK_GAP`, `BLOCK_RING` in `src/lib/github.ts` |
+| Block size / how spread out the city is | `spacing` and `block` in `streetNetwork()` (`src/lib/github.ts`) |
 | Street width | `ROAD_WIDTH_RATIO` in `src/lib/github.ts` |
 | Window glow curve | `windowLightLevel()` in `github.ts` |
 | Bloom strength | `<Bloom>` props in `Scene.tsx` |
