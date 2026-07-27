@@ -151,285 +151,192 @@ function strSeed(str: string): number {
   return h
 }
 
-/**
- * Place buildings along loose city-block streets. The first repo (landmark)
- * stays close to the middle, but every building still gets deterministic
- * jitter so the layout reads as a planned city, not a perfect spreadsheet.
- */
+
+/** Street width as a multiple of `spacing` — shared by the layout and renderer. */
+export const ROAD_WIDTH_RATIO = 0.34
+
+/** A plot fronting a street: where it meets the kerb, and which way it faces. */
 interface LayoutSlot {
-  /** Index of the block this plot fronts, so empty blocks can be dropped. */
-  block: number
   roadPoint: [number, number]
   roadDir: [number, number]
   roadNormal: [number, number]
 }
 
-/** One rotated rectangular city block. */
-interface Block {
-  center: [number, number]
-  u: [number, number]
-  v: [number, number]
-  width: number
-  depth: number
-  corners: [number, number][]
-}
-
-/** A street around a block's perimeter, tagged with the block it belongs to. */
-interface BlockRoad extends CityRoad {
-  block: number
-}
-
-/** A street joining two blocks, tagged with both so it can be pruned with them. */
-interface ConnectorRoad extends CityRoad {
-  i: number
-  j: number
-}
-
-interface CityLayout {
+export interface CityLayout {
   slots: LayoutSlot[]
-  perimeter: BlockRoad[]
-  blocks: Block[]
+  roads: CityRoad[]
 }
 
-/** Where the line from a block's center toward `target` leaves the block. */
-function boundaryPoint(block: Block, target: [number, number]): [number, number] {
-  const dx = target[0] - block.center[0]
-  const dz = target[1] - block.center[1]
-  const len = Math.hypot(dx, dz) || 1
-  const dir: [number, number] = [dx / len, dz / len]
-  const du = Math.abs(dir[0] * block.u[0] + dir[1] * block.u[1])
-  const dv = Math.abs(dir[0] * block.v[0] + dir[1] * block.v[1])
-  const tu = du > 0.0001 ? block.width / 2 / du : Infinity
-  const tv = dv > 0.0001 ? block.depth / 2 / dv : Infinity
-  const t = Math.min(tu, tv)
-  return [block.center[0] + dir[0] * t, block.center[1] + dir[1] * t]
-}
-
-/** Street width as a multiple of `spacing` — shared by the layout and the renderer. */
-export const ROAD_WIDTH_RATIO = 0.34
 /**
- * Each block fronts ~16-30 plots around its perimeter (both kerbs). Asking for
- * roughly one block per 16 repos leaves a little room to skip a bad fit without
- * generating whole blocks that no building ever occupies.
+ * The city's streets, built as a planar graph before a single building is
+ * placed: an irregular lattice of intersections, jittered and rotated, joined
+ * by streets that every plot then fronts. Because the graph shares its
+ * intersections, the network is connected by construction — the earlier
+ * approach of drawing block outlines and stringing them together left long
+ * connector roads running across open grass.
+ *
+ * Blocks are whatever the streets enclose, so they vary in size and shape
+ * instead of being rectangles laid out on a lattice.
  */
-export function blockCountFor(count: number): number {
-  return Math.max(1, Math.ceil(count / 12))
-}
-// Gap left between two block outlines: a street, plus the plots that face
-// outward from each of them. Blocks are packed as tightly as this allows, so
-// the city reads as a built-up whole rather than islands joined by long roads.
-const BLOCK_MARGIN = 2.7
-const BLOCK_RING = 5.4
+export function streetNetwork(count: number, spacing: number, rng: () => number): CityLayout {
+  if (count <= 0) return { slots: [], roads: [] }
 
-function organicCityLayout(count: number, spacing: number, rng: () => number): CityLayout {
-  if (count <= 0) return { slots: [], perimeter: [], blocks: [] }
+  // Roughly 8 plots front each block; size the lattice to give the placer
+  // about twice the plots it needs so it can skip a bad fit.
+  const side = Math.max(2, Math.ceil(Math.sqrt(Math.max(1, count) * 0.32)) + 1)
 
-  const perimeter: BlockRoad[] = []
-  const candidates: (LayoutSlot & { rank: number })[] = []
-  const blockCount = blockCountFor(count)
-
-  const addCandidate = (
-    block: number,
-    roadPoint: [number, number],
-    roadDir: [number, number],
-    roadNormal: [number, number],
-    rankPenalty = 0,
-  ) => {
-    const rank =
-      Math.hypot(roadPoint[0], roadPoint[1]) + rng() * spacing * 1.8 + rankPenalty
-    candidates.push({ block, roadPoint, roadDir, roadNormal, rank })
+  // Streets are unevenly spaced, so blocks differ in size across the city.
+  const xs = [0]
+  const zs = [0]
+  for (let i = 1; i < side; i++) {
+    xs.push(xs[i - 1] + spacing * (4.4 + rng() * 2.6))
+    zs.push(zs[i - 1] + spacing * (3.9 + rng() * 2.4))
   }
+  const halfX = xs[side - 1] / 2
+  const halfZ = zs[side - 1] / 2
+  const rotation = (rng() - 0.5) * Math.PI
+  const cos = Math.cos(rotation)
+  const sin = Math.sin(rotation)
+  // Trim the corners so the city reads as a town, not a rectangle — but only
+  // once the lattice is big enough to have corners worth losing. On a 2x2 grid
+  // every node *is* a corner, and clipping would leave no streets at all.
+  const bound = side >= 4 ? Math.hypot(halfX, halfZ) * 0.9 : Infinity
 
-  const blocks: Block[] = []
-  const districtAngle = (rng() - 0.5) * 0.45
-
-  const makeBlock = (center: [number, number], index: number): Block => {
-    const angle = districtAngle + (rng() - 0.5) * 0.75 + ((index % 3) - 1) * 0.08
-    const u: [number, number] = [Math.cos(angle), Math.sin(angle)]
-    const v: [number, number] = [-u[1], u[0]]
-    const width = spacing * (4.2 + rng() * 2.2)
-    const depth = spacing * (3.4 + rng() * 1.9)
-    const hw = width / 2
-    const hd = depth / 2
-    const corner = (su: number, sv: number): [number, number] => [
-      center[0] + u[0] * hw * su + v[0] * hd * sv,
-      center[1] + u[1] * hw * su + v[1] * hd * sv,
-    ]
-    return {
-      center,
-      u,
-      v,
-      width,
-      depth,
-      corners: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)],
+  const key = (r: number, c: number) => `${r}:${c}`
+  const nodes = new Map<string, [number, number]>()
+  for (let r = 0; r < side; r++) {
+    for (let c = 0; c < side; c++) {
+      const px = xs[c] - halfX + (rng() - 0.5) * spacing * 1.6
+      const pz = zs[r] - halfZ + (rng() - 0.5) * spacing * 1.6
+      if (Math.hypot(px, pz) > bound) continue
+      nodes.set(key(r, c), [px * cos - pz * sin, px * sin + pz * cos])
     }
   }
 
-  // True separation between two rotated rectangles (separating-axis test), so
-  // blocks can nestle right up against their neighbours at any angle. Comparing
-  // center distances instead forced them a whole diagonal apart and left the
-  // city looking like islands strung together.
-  const blocksClear = (a: Block, b: Block, margin: number) => {
-    const dx = b.center[0] - a.center[0]
-    const dz = b.center[1] - a.center[1]
-    const reach = (block: Block, axis: [number, number]) =>
-      Math.abs(block.u[0] * axis[0] + block.u[1] * axis[1]) * block.width * 0.5 +
-      Math.abs(block.v[0] * axis[0] + block.v[1] * axis[1]) * block.depth * 0.5
-    for (const axis of [a.u, a.v, b.u, b.v]) {
-      const gap = Math.abs(dx * axis[0] + dz * axis[1]) - reach(a, axis) - reach(b, axis)
-      if (gap > margin) return true
+  interface Edge {
+    from: string
+    to: string
+  }
+  const edges: Edge[] = []
+  for (let r = 0; r < side; r++) {
+    for (let c = 0; c < side; c++) {
+      const here = key(r, c)
+      if (!nodes.has(here)) continue
+      for (const [dr, dc] of [
+        [0, 1],
+        [1, 0],
+      ]) {
+        const there = key(r + dr, c + dc)
+        if (nodes.has(there)) edges.push({ from: here, to: there })
+      }
     }
-    return false
   }
 
-  for (let i = 0; i < blockCount; i++) {
-    let placedBlock = makeBlock([0, 0], i)
-    if (i > 0) {
-      // Walk outward on a phyllotaxis spiral, nudging the ring outward on each
-      // failed attempt until the block clears the ones already placed.
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const ring = spacing * BLOCK_RING * Math.sqrt(i) * (1 + attempt * 0.04)
-        const angle = i * 2.399963 + rng() * 0.5
-        placedBlock = makeBlock(
-          [
-            Math.cos(angle) * ring + (rng() - 0.5) * spacing,
-            Math.sin(angle) * ring + (rng() - 0.5) * spacing,
-          ],
-          i,
-        )
-        if (blocks.every((block) => blocksClear(placedBlock, block, spacing * BLOCK_MARGIN))) {
-          break
+  const degree = (list: Edge[], node: string) =>
+    list.filter((e) => e.from === node || e.to === node).length
+
+  /** Nodes reachable from `start` over `list`. */
+  const reachable = (list: Edge[], start: string) => {
+    const seen = new Set([start])
+    const queue = [start]
+    while (queue.length) {
+      const node = queue.pop() as string
+      for (const edge of list) {
+        const next = edge.from === node ? edge.to : edge.to === node ? edge.from : null
+        if (next && !seen.has(next)) {
+          seen.add(next)
+          queue.push(next)
         }
       }
     }
-    blocks.push(placedBlock)
+    return seen
   }
 
-  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
-    const block = blocks[blockIndex]
-    const corners = block.corners
-    for (let edgeIndex = 0; edgeIndex < corners.length; edgeIndex++) {
-      const a = corners[edgeIndex]
-      const b = corners[(edgeIndex + 1) % corners.length]
-      perimeter.push({ a, b, block: blockIndex })
-
-      const dx = b[0] - a[0]
-      const dz = b[1] - a[1]
-      const length = Math.hypot(dx, dz)
-      const roadDir: [number, number] = [dx / length, dz / length]
-      const roadNormal: [number, number] = [-roadDir[1], roadDir[0]]
-      const slotGap = spacing * 1.5
-      const slotCount = Math.max(1, Math.floor(length / slotGap))
-      for (let slot = 1; slot <= slotCount; slot++) {
-        const t = slot / (slotCount + 1)
-        const jitter = (rng() - 0.5) * spacing * 0.35
-        const along = Math.max(spacing * 0.5, Math.min(length - spacing * 0.5, t * length + jitter))
-        const point: [number, number] = [
-          a[0] + roadDir[0] * along,
-          a[1] + roadDir[1] * along,
-        ]
-        // A plot on each side of the street: real blocks are built up on both
-        // kerbs, and the spare plots give the placer room to skip a bad fit.
-        addCandidate(blockIndex, point, roadDir, roadNormal)
-        addCandidate(
-          blockIndex,
-          point,
-          roadDir,
-          [-roadNormal[0], -roadNormal[1]],
-          spacing * 2.5,
-        )
-      }
-    }
-  }
-
-  // Keep every well-separated plot, not just the first `count` — buildWorld
-  // picks from these by rank and needs spares to skip past when a wide tower
-  // won't fit the next slot along.
-  const slots: LayoutSlot[] = []
-  const spares: LayoutSlot[] = []
-  const sortedCandidates = candidates.sort((a, b) => a.rank - b.rank)
-  for (const candidate of sortedCandidates) {
-    const clear = slots.every((slot) => {
-      // Plots facing each other across the same street don't crowd each other,
-      // so only plots on the same kerb need the spacing check.
-      const sameSide =
-        candidate.roadNormal[0] * slot.roadNormal[0] +
-          candidate.roadNormal[1] * slot.roadNormal[1] >
-        0
-      if (!sameSide) return true
-      return (
-        Math.hypot(
-          candidate.roadPoint[0] - slot.roadPoint[0],
-          candidate.roadPoint[1] - slot.roadPoint[1],
-        ) > spacing * 1.55
-      )
-    })
-    if (clear) slots.push(candidate)
-    else spares.push(candidate)
-  }
-  // Never return fewer plots than there are buildings to place.
-  for (const spare of spares) {
-    if (slots.length >= count) break
-    slots.push(spare)
-  }
-
-  return { slots, perimeter, blocks }
-}
-
-/**
- * Streets joining the blocks that actually got built on: a minimum spanning
- * tree over their centers (so every block is reachable) plus a few extra short
- * links, so the network has loops instead of reading as a branching diagram.
- */
-function connectBlocks(blocks: Block[], used: number[], spacing: number): ConnectorRoad[] {
-  if (used.length < 2) return []
-  const roads: ConnectorRoad[] = []
-  const distance = (i: number, j: number) =>
-    Math.hypot(
-      blocks[i].center[0] - blocks[j].center[0],
-      blocks[i].center[1] - blocks[j].center[1],
+  // Drop a few streets so blocks merge into bigger, irregular ones — but only
+  // where doing so leaves every remaining intersection reachable.
+  let kept = edges
+  const removals = Math.floor(edges.length * 0.14)
+  for (let i = 0; i < removals; i++) {
+    const candidates = kept.filter(
+      (edge) => degree(kept, edge.from) > 2 && degree(kept, edge.to) > 2,
     )
-  const connect = (i: number, j: number) => {
-    const a = boundaryPoint(blocks[i], blocks[j].center)
-    const b = boundaryPoint(blocks[j], blocks[i].center)
-    // Tightly packed blocks can share an edge, leaving nothing to draw.
-    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < spacing * 0.2) return
-    roads.push({ a, b, i, j })
+    if (!candidates.length) break
+    const victim = candidates[Math.floor(rng() * candidates.length)]
+    const trimmed = kept.filter((edge) => edge !== victim)
+    if (reachable(trimmed, trimmed[0].from).size === new Set(trimmed.flatMap((e) => [e.from, e.to])).size) {
+      kept = trimmed
+    }
   }
 
-  const linked = new Set<number>([used[0]])
-  while (linked.size < used.length) {
-    let from = used[0]
-    let to = -1
-    let best = Infinity
-    for (const i of linked) {
-      for (const j of used) {
-        if (linked.has(j)) continue
-        const d = distance(i, j)
-        if (d < best) {
-          best = d
-          from = i
-          to = j
-        }
+  // Keep only the largest connected component, then trim dead-end stubs.
+  const nodeList = [...new Set(kept.flatMap((e) => [e.from, e.to]))]
+  let best = new Set<string>()
+  for (const node of nodeList) {
+    if (best.has(node)) continue
+    const group = reachable(kept, node)
+    if (group.size > best.size) best = group
+  }
+  kept = kept.filter((edge) => best.has(edge.from) && best.has(edge.to))
+  for (let pass = 0; pass < side * 2; pass++) {
+    const stub = kept.find(
+      (edge) => degree(kept, edge.from) === 1 || degree(kept, edge.to) === 1,
+    )
+    if (!stub) break
+    kept = kept.filter((edge) => edge !== stub)
+  }
+
+  const roads: CityRoad[] = kept.map((edge) => ({
+    a: nodes.get(edge.from) as [number, number],
+    b: nodes.get(edge.to) as [number, number],
+  }))
+
+  // Plots down both kerbs of every street, clear of the intersections at each
+  // end, ranked so the city fills from the middle outward. Tighten the spacing
+  // and retry if the streets came out shorter than the profile needs — running
+  // out of plots is what used to crash the layout on tiny profiles.
+  let candidates: (LayoutSlot & { rank: number })[] = []
+  for (let attempt = 0; attempt < 5 && candidates.length < count; attempt++) {
+    candidates = []
+    const tightening = 0.7 ** attempt
+    const slotGap = spacing * 1.5 * tightening
+    const endClearance = spacing * 1.1 * tightening
+    for (const road of roads) {
+      const dx = road.b[0] - road.a[0]
+      const dz = road.b[1] - road.a[1]
+      const length = Math.hypot(dx, dz)
+      const usable = length - endClearance * 2
+      if (usable <= 0) continue
+      const roadDir: [number, number] = [dx / length, dz / length]
+      const normal: [number, number] = [-roadDir[1], roadDir[0]]
+      const slots = Math.max(1, Math.floor(usable / slotGap))
+      for (let i = 0; i < slots; i++) {
+        const along =
+          endClearance + (usable * (i + 0.5)) / slots + (rng() - 0.5) * spacing * 0.3
+        const point: [number, number] = [
+          road.a[0] + roadDir[0] * along,
+          road.a[1] + roadDir[1] * along,
+        ]
+        const rank = Math.hypot(point[0], point[1]) + rng() * spacing * 1.5
+        candidates.push({ roadPoint: point, roadDir, roadNormal: normal, rank })
+        candidates.push({
+          roadPoint: point,
+          roadDir,
+          roadNormal: [-normal[0], -normal[1]],
+          rank: rank + spacing * 0.4,
+        })
       }
     }
-    if (to < 0) break
-    connect(from, to)
-    linked.add(to)
   }
+  candidates.sort((a, b) => a.rank - b.rank)
 
-  const pairs: { i: number; j: number; d: number }[] = []
-  for (let a = 0; a < used.length; a++) {
-    for (let b = a + 1; b < used.length; b++) {
-      pairs.push({ i: used[a], j: used[b], d: distance(used[a], used[b]) })
-    }
+  return {
+    slots: candidates.map(({ roadPoint, roadDir, roadNormal }) => ({
+      roadPoint,
+      roadDir,
+      roadNormal,
+    })),
+    roads,
   }
-  pairs.sort((x, y) => x.d - y.d)
-  const extras = Math.floor(used.length / 3)
-  for (const pair of pairs.slice(used.length - 1, used.length - 1 + extras)) {
-    connect(pair.i, pair.j)
-  }
-  return roads
 }
 
 // Building height range (world units). The most significant repo reaches
@@ -472,21 +379,17 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
   // Radius the buildings scatter across (no filler city — just the repos,
   // spread out so some sit near the center and some out at the edges).
   const count = scored.length
-  const layout = organicCityLayout(count, spacing, makeRng(strSeed(user.login)))
+  const layout = streetNetwork(count, spacing, makeRng(strSeed(user.login)))
   const positions = layout.slots
   // Plots are claimed biggest-repo-first: each building takes the most central
-  // free plot it actually fits on, so wide towers never end up overlapping the
-  // neighbour that shares their block corner.
+  // free plot it actually fits on, so wide towers never end up overlapping a
+  // neighbour or standing in a crossing street.
   const takenSlots = new Set<number>()
-  const occupiedBlocks = new Set<number>()
   const placed: { x: number; z: number; radius: number }[] = []
   const roadWidth = spacing * ROAD_WIDTH_RATIO
-  // Every street is laid out before any building is placed, so a plot is never
-  // chosen where the building body would stand in a road crossing behind or
-  // beside its own street.
-  const allBlocks = layout.blocks.map((_, index) => index)
-  const connectors = connectBlocks(layout.blocks, allBlocks, spacing)
-  const roadSegs = [...layout.perimeter, ...connectors]
+  // Every street exists before a single building is placed, so the fit test
+  // below can check plots against the whole network.
+  const roadSegs = layout.roads
     .map(({ a, b }) => ({ a, b, length: Math.hypot(b[0] - a[0], b[1] - a[1]) }))
     .filter((seg) => seg.length >= 0.05)
   const distToRoad = (x: number, z: number, seg: (typeof roadSegs)[number]) => {
@@ -573,7 +476,6 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     takenSlots.add(chosen)
 
     const plot = positions[chosen]
-    occupiedBlocks.add(plot.block)
     const faceRoadAngle = Math.atan2(-plot.roadNormal[0], -plot.roadNormal[1])
     const rotationY = landmark ? faceRoadAngle : faceRoadAngle + (rnd(2) - 0.5) * 0.16
     const position = positionFor(plot)
@@ -636,28 +538,7 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     if (!moved) break
   }
 
-  // Drop blocks no building ended up on — an empty block is just a rectangle of
-  // road sitting in the grass. Only blocks hanging off the end of the network
-  // are removed, so pruning can never split the streets into islands.
-  const occupied = occupiedBlocks
-  const keptBlocks = new Set(allBlocks)
-  let keptConnectors = connectors
-  for (let pass = 0; pass < layout.blocks.length; pass++) {
-    const leaf = [...keptBlocks].find(
-      (index) =>
-        !occupied.has(index) &&
-        keptConnectors.filter((road) => road.i === index || road.j === index).length <= 1,
-    )
-    if (leaf === undefined) break
-    keptBlocks.delete(leaf)
-    keptConnectors = keptConnectors.filter((road) => road.i !== leaf && road.j !== leaf)
-  }
-  const roads: CityRoad[] = [
-    ...layout.perimeter
-      .filter((road) => keptBlocks.has(road.block))
-      .map(({ a, b }) => ({ a, b })),
-    ...keptConnectors.map(({ a, b }) => ({ a, b })),
-  ]
+  const roads = layout.roads
 
   // Size the island from what the layout actually came out as, so the city
   // neither overflows the coastline nor floats in a sea of empty grass.
@@ -702,7 +583,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v13:'
+const CACHE_PREFIX = 'ghw:world:v14:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 
