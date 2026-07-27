@@ -215,16 +215,18 @@ export interface CityLayout {
 export function streetNetwork(count: number, spacing: number, rng: () => number): CityLayout {
   if (count <= 0) return { slots: [], roads: [] }
 
-  // Roughly 8 plots front each block; size the lattice to give the placer
-  // about twice the plots it needs so it can skip a bad fit.
-  const side = Math.max(2, Math.ceil(Math.sqrt(Math.max(1, count) * 0.32)) + 1)
+  // Size the lattice so the streets it generates are mostly built up. Too many
+  // streets and the buildings scatter thinly across them, which reads as
+  // sprinkled boxes rather than a city; the target is roughly 1.5 plots for
+  // every building, filled from the middle outward.
+  const side = Math.max(2, Math.round((1 + Math.sqrt(1 + 1.05 * Math.max(1, count))) / 2))
 
   // Streets are unevenly spaced, so blocks differ in size across the city.
   const xs = [0]
   const zs = [0]
   for (let i = 1; i < side; i++) {
-    xs.push(xs[i - 1] + spacing * (4.4 + rng() * 2.6))
-    zs.push(zs[i - 1] + spacing * (3.9 + rng() * 2.4))
+    xs.push(xs[i - 1] + spacing * (3.2 + rng() * 1.7))
+    zs.push(zs[i - 1] + spacing * (2.9 + rng() * 1.6))
   }
   const halfX = xs[side - 1] / 2
   const halfZ = zs[side - 1] / 2
@@ -331,9 +333,11 @@ export function streetNetwork(count: number, spacing: number, rng: () => number)
   let candidates: (LayoutSlot & { rank: number })[] = []
   for (let attempt = 0; attempt < 5 && candidates.length < count; attempt++) {
     candidates = []
-    const tightening = 0.7 ** attempt
-    const slotGap = spacing * 1.5 * tightening
-    const endClearance = spacing * 1.1 * tightening
+    const tightening = 0.75 ** attempt
+    // Plots sit close together — buildings are 2-4 wide, so this is a terrace
+    // with a little breathing room, not houses stranded in their own fields.
+    const slotGap = spacing * 1.0 * tightening
+    const endClearance = spacing * 0.55 * tightening
     for (const road of roads) {
       const dx = road.b[0] - road.a[0]
       const dz = road.b[1] - road.a[1]
@@ -534,6 +538,25 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
     if (chosen < 0) chosen = looseSlot >= 0 ? looseSlot : 0
     takenSlots.add(chosen)
 
+    // Plots sit close together so streets read as terraces, which means a wide
+    // building covers the frontage of its neighbours. Claim those too, rather
+    // than leaving them to be filled by something that would clip this one.
+    const claimed = positions[chosen]
+    for (let s = 0; s < positions.length; s++) {
+      if (takenSlots.has(s)) continue
+      const other = positions[s]
+      const sameSide =
+        other.roadNormal[0] * claimed.roadNormal[0] +
+          other.roadNormal[1] * claimed.roadNormal[1] >
+        0
+      if (!sameSide) continue
+      const apart = Math.hypot(
+        other.roadPoint[0] - claimed.roadPoint[0],
+        other.roadPoint[1] - claimed.roadPoint[1],
+      )
+      if (apart < bodyRadius + 1.4) takenSlots.add(s)
+    }
+
     const plot = positions[chosen]
     const faceRoadAngle = Math.atan2(-plot.roadNormal[0], -plot.roadNormal[1])
     const rotationY = landmark ? faceRoadAngle : faceRoadAngle + (rnd(2) - 0.5) * 0.16
@@ -644,7 +667,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v14:'
+const CACHE_PREFIX = 'ghw:world:v15:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

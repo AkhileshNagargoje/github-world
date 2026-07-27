@@ -87,9 +87,9 @@ export default function Building({ building, selected, night, onSelect }: Buildi
     roof === 'pitched'
       ? Math.max(0.5, Math.min(1.5, footprint * 0.42))
       : roof === 'stepped'
-        ? 2.1
+        ? 1.2
         : roof === 'crown'
-          ? 1.3
+          ? 0.85
           : 0.12
 
   return (
@@ -145,7 +145,7 @@ export default function Building({ building, selected, night, onSelect }: Buildi
         <Roof kind={roof} height={height} width={footprint} depth={depth} color={color} />
 
         {/* Rooftop clutter — a tank and a vent give the skyline texture */}
-        {roof !== 'pitched' && (
+        {roof !== 'pitched' && height > 5 && (
           <RoofClutter height={height} width={footprint} depth={depth} seed={stars + depth} />
         )}
 
@@ -261,7 +261,7 @@ function Roof({
     return (
       <mesh position={[0, height + 0.06, 0]} castShadow>
         <boxGeometry args={[width * 1.03, 0.12, depth * 1.03]} />
-        <meshStandardMaterial color="#b9bec6" roughness={0.8} />
+        <meshStandardMaterial color="#868d97" roughness={0.85} />
       </mesh>
     )
   }
@@ -279,12 +279,12 @@ function Roof({
   if (kind === 'stepped') {
     return (
       <group position={[0, height, 0]}>
-        <mesh position={[0, 0.5, 0]} castShadow>
-          <boxGeometry args={[width * 0.74, 1, depth * 0.74]} />
+        <mesh position={[0, 0.3, 0]} castShadow>
+          <boxGeometry args={[width * 0.8, 0.6, depth * 0.8]} />
           <meshStandardMaterial color={color} roughness={0.72} />
         </mesh>
-        <mesh position={[0, 1.55, 0]} castShadow>
-          <boxGeometry args={[width * 0.46, 1.1, depth * 0.46]} />
+        <mesh position={[0, 0.9, 0]} castShadow>
+          <boxGeometry args={[width * 0.55, 0.6, depth * 0.55]} />
           <meshStandardMaterial color={color} roughness={0.72} />
         </mesh>
       </group>
@@ -293,13 +293,13 @@ function Roof({
   // Crown: a recessed cap ringed by a lip, for the tallest towers.
   return (
     <group position={[0, height, 0]}>
-      <mesh position={[0, 0.09, 0]} castShadow>
-        <boxGeometry args={[width * 1.08, 0.18, depth * 1.08]} />
-        <meshStandardMaterial color="#9aa1ab" roughness={0.7} metalness={0.2} />
+      <mesh position={[0, 0.08, 0]} castShadow>
+        <boxGeometry args={[width * 1.06, 0.16, depth * 1.06]} />
+        <meshStandardMaterial color="#7f8792" roughness={0.7} metalness={0.2} />
       </mesh>
-      <mesh position={[0, 0.75, 0]} castShadow>
-        <boxGeometry args={[width * 0.6, 1.1, depth * 0.6]} />
-        <meshStandardMaterial color={color} roughness={0.7} />
+      <mesh position={[0, 0.5, 0]} castShadow>
+        <boxGeometry args={[width * 0.42, 0.7, depth * 0.42]} />
+        <meshStandardMaterial color="#8b929c" roughness={0.7} />
       </mesh>
     </group>
   )
@@ -322,12 +322,12 @@ function RoofClutter({
   const offZ = (0.5 - pick) * depth * 0.5
   return (
     <group position={[0, height + 0.12, 0]}>
-      <mesh position={[offX, 0.28, offZ]} castShadow>
-        <cylinderGeometry args={[0.22, 0.22, 0.55, 8]} />
+      <mesh position={[offX, 0.2, offZ]} castShadow>
+        <cylinderGeometry args={[0.16, 0.16, 0.4, 8]} />
         <meshStandardMaterial color="#6f7681" roughness={0.85} flatShading />
       </mesh>
-      <mesh position={[-offX * 0.7, 0.16, -offZ * 0.7]} castShadow>
-        <boxGeometry args={[width * 0.24, 0.3, depth * 0.24]} />
+      <mesh position={[-offX * 0.7, 0.11, -offZ * 0.7]} castShadow>
+        <boxGeometry args={[width * 0.2, 0.22, depth * 0.2]} />
         <meshStandardMaterial color="#7d838d" roughness={0.85} />
       </mesh>
     </group>
