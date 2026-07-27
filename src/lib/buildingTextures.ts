@@ -103,3 +103,27 @@ export function getWindowTextures(): WindowTextures {
   if (!cached) cached = build()
   return cached
 }
+
+// Buildings need the window grid tiled differently depending on their size, and
+// `repeat` lives on the texture rather than the material — so each distinct
+// tiling needs its own texture. Cloning per building meant a 150-repo city
+// uploaded 300 textures; there are only ever a couple of dozen distinct tilings,
+// so they are cached and shared instead.
+const tilings = new Map<string, WindowTextures>()
+
+/** Shared window textures tiled `rx` by `ry`. */
+export function getTiledWindowTextures(rx: number, ry: number): WindowTextures {
+  const key = `${rx}x${ry}`
+  const existing = tilings.get(key)
+  if (existing) return existing
+  const base = getWindowTextures()
+  const map = base.map.clone()
+  const emissiveMap = base.emissiveMap.clone()
+  map.repeat.set(rx, ry)
+  emissiveMap.repeat.set(rx, ry)
+  map.needsUpdate = true
+  emissiveMap.needsUpdate = true
+  const tiled = { map, emissiveMap }
+  tilings.set(key, tiled)
+  return tiled
+}

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import type { Building as BuildingModel } from '../types'
-import { getWindowTextures } from '../lib/buildingTextures'
+import { getTiledWindowTextures } from '../lib/buildingTextures'
 
 interface BuildingProps {
   building: BuildingModel
@@ -33,6 +33,8 @@ export default function Building({ building, selected, night, onSelect }: Buildi
     active,
     landmark,
     stars,
+    starred,
+    roof,
     windowLight,
   } = building
   const maxFoot = Math.max(footprint, depth)
@@ -47,27 +49,21 @@ export default function Building({ building, selected, night, onSelect }: Buildi
   )
   const connectorWidth = Math.max(0.7, Math.min(1.15, footprint * 0.28))
 
-  // Per-building window textures: clone the shared maps and set `repeat` so the
-  // window grid tiles to roughly square cells regardless of the box size.
+  // Window grid tiled to roughly square cells whatever the box size. Textures
+  // are shared between every building that lands on the same tiling.
   const { map, emissiveMap } = useMemo(() => {
-    const base = getWindowTextures()
     const rx = Math.max(1, Math.min(5, Math.round(((footprint + depth) / 2) / 1.1)))
     const ry = Math.max(1, Math.min(12, Math.round(height / 1.6)))
-    const m = base.map.clone()
-    const e = base.emissiveMap.clone()
-    m.repeat.set(rx, ry)
-    e.repeat.set(rx, ry)
-    m.needsUpdate = true
-    e.needsUpdate = true
-    return { map: m, emissiveMap: e }
+    return getTiledWindowTextures(rx, ry)
   }, [footprint, depth, height])
 
   // Windows glow with activity; much brighter at night; hover/select turns up.
   const emissiveIntensity =
     windowLight * (night ? 2.2 : 1.15) + (selected ? 0.7 : 0) + (hovered ? 0.4 : 0)
 
-  // Prestige: taller gold spire = more stars.
-  const spireHeight = stars > 0 ? Math.min(6, Math.log2(stars + 1) * 0.9) : 0
+  // Prestige: only the best-starred repos carry a spire, and its height still
+  // scales with stars — so it reads as a ranking, not as decoration.
+  const spireHeight = starred ? Math.min(6, 1.4 + Math.log2(stars + 1) * 0.55) : 0
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -85,6 +81,16 @@ export default function Building({ building, selected, night, onSelect }: Buildi
 
   const doorH = Math.min(1.1, height * 0.28)
   const doorW = Math.min(footprint * 0.34, 0.9)
+
+  // Whatever sits on the roof (spire, beacon, crane) has to start above it.
+  const roofTop =
+    roof === 'pitched'
+      ? Math.max(0.5, Math.min(1.5, footprint * 0.42))
+      : roof === 'stepped'
+        ? 2.1
+        : roof === 'crown'
+          ? 1.3
+          : 0.12
 
   return (
     <group position={[x, 0, z]}>
@@ -135,6 +141,14 @@ export default function Building({ building, selected, night, onSelect }: Buildi
         {/* Balconies on the landmark for a bit of civic grandeur */}
         {landmark && <Balconies height={height} footprint={footprint} />}
 
+        {/* Roof: pitched on low buildings, stepped or crowned on towers */}
+        <Roof kind={roof} height={height} width={footprint} depth={depth} color={color} />
+
+        {/* Rooftop clutter — a tank and a vent give the skyline texture */}
+        {roof !== 'pitched' && (
+          <RoofClutter height={height} width={footprint} depth={depth} seed={stars + depth} />
+        )}
+
         {/* Selection / hover outline ring on the ground */}
         {(selected || hovered) && (
           <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -145,7 +159,7 @@ export default function Building({ building, selected, night, onSelect }: Buildi
 
         {/* Star spire */}
         {spireHeight > 0 && (
-          <group position={[0, height, 0]}>
+          <group position={[0, height + roofTop, 0]}>
             <mesh position={[0, spireHeight / 2, 0]} castShadow>
               <coneGeometry args={[0.22, spireHeight, 4]} />
               <meshStandardMaterial
@@ -162,7 +176,7 @@ export default function Building({ building, selected, night, onSelect }: Buildi
 
         {/* Landmark beacon (marks the city center regardless of stars) */}
         {landmark && (
-          <mesh position={[0, height + spireHeight + 0.7, 0]}>
+          <mesh position={[0, height + roofTop + spireHeight + 0.7, 0]}>
             <octahedronGeometry args={[0.6, 0]} />
             <meshStandardMaterial
               color={GOLD}
@@ -174,7 +188,7 @@ export default function Building({ building, selected, night, onSelect }: Buildi
         )}
 
         {/* "Under construction" crane on active, non-landmark repos */}
-        {active && !landmark && <Crane baseHeight={height} />}
+        {active && !landmark && <Crane baseHeight={height + roofTop} />}
 
         {/* Name signs mounted on the building facade (front & back faces), sized
             to roughly span the width, near the top - like real rooftop signage. */}
@@ -219,14 +233,104 @@ function FacadeSign({
     outlineOpacity: 0.9,
   }
   return (
-    <>
-      <Text position={[0, y, depth / 2 + 0.03]} {...common}>
-        {name}
-      </Text>
-      <Text position={[0, y, -(depth / 2 + 0.03)]} rotation={[0, Math.PI, 0]} {...common}>
-        {name}
-      </Text>
-    </>
+    <Text position={[0, y, depth / 2 + 0.03]} {...common}>
+      {name}
+    </Text>
+  )
+}
+
+/**
+ * The top of the building. A pitched roof reads as a house, a stepped setback
+ * or a crown reads as a tower — either way the skyline stops being flat boxes.
+ */
+function Roof({
+  kind,
+  height,
+  width,
+  depth,
+  color,
+}: {
+  kind: BuildingModel['roof']
+  height: number
+  width: number
+  depth: number
+  color: string
+}) {
+  if (kind === 'flat') {
+    // A slim parapet so even flat roofs catch an edge of light.
+    return (
+      <mesh position={[0, height + 0.06, 0]} castShadow>
+        <boxGeometry args={[width * 1.03, 0.12, depth * 1.03]} />
+        <meshStandardMaterial color="#b9bec6" roughness={0.8} />
+      </mesh>
+    )
+  }
+  if (kind === 'pitched') {
+    const rise = Math.max(0.5, Math.min(1.5, width * 0.42))
+    return (
+      <group position={[0, height, 0]}>
+        <mesh position={[0, rise / 2, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+          <coneGeometry args={[Math.max(width, depth) * 0.75, rise, 4]} />
+          <meshStandardMaterial color="#8d5f4c" roughness={0.9} flatShading />
+        </mesh>
+      </group>
+    )
+  }
+  if (kind === 'stepped') {
+    return (
+      <group position={[0, height, 0]}>
+        <mesh position={[0, 0.5, 0]} castShadow>
+          <boxGeometry args={[width * 0.74, 1, depth * 0.74]} />
+          <meshStandardMaterial color={color} roughness={0.72} />
+        </mesh>
+        <mesh position={[0, 1.55, 0]} castShadow>
+          <boxGeometry args={[width * 0.46, 1.1, depth * 0.46]} />
+          <meshStandardMaterial color={color} roughness={0.72} />
+        </mesh>
+      </group>
+    )
+  }
+  // Crown: a recessed cap ringed by a lip, for the tallest towers.
+  return (
+    <group position={[0, height, 0]}>
+      <mesh position={[0, 0.09, 0]} castShadow>
+        <boxGeometry args={[width * 1.08, 0.18, depth * 1.08]} />
+        <meshStandardMaterial color="#9aa1ab" roughness={0.7} metalness={0.2} />
+      </mesh>
+      <mesh position={[0, 0.75, 0]} castShadow>
+        <boxGeometry args={[width * 0.6, 1.1, depth * 0.6]} />
+        <meshStandardMaterial color={color} roughness={0.7} />
+      </mesh>
+    </group>
+  )
+}
+
+/** Water tank, vent box and a mast — the small stuff real rooftops carry. */
+function RoofClutter({
+  height,
+  width,
+  depth,
+  seed,
+}: {
+  height: number
+  width: number
+  depth: number
+  seed: number
+}) {
+  const pick = (seed * 9301 + 49297) % 233280 / 233280
+  const offX = (pick - 0.5) * width * 0.5
+  const offZ = (0.5 - pick) * depth * 0.5
+  return (
+    <group position={[0, height + 0.12, 0]}>
+      <mesh position={[offX, 0.28, offZ]} castShadow>
+        <cylinderGeometry args={[0.22, 0.22, 0.55, 8]} />
+        <meshStandardMaterial color="#6f7681" roughness={0.85} flatShading />
+      </mesh>
+      <mesh position={[-offX * 0.7, 0.16, -offZ * 0.7]} castShadow>
+        <boxGeometry args={[width * 0.24, 0.3, depth * 0.24]} />
+        <meshStandardMaterial color="#7d838d" roughness={0.85} />
+      </mesh>
+    </group>
   )
 }
 

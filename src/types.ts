@@ -61,6 +61,10 @@ export interface Building {
   windowLight: number
   /** True for the user's single most-starred repo — rendered as a monument. */
   landmark: boolean
+  /** Roof treatment, varied per repo so the skyline isn't a row of flat boxes. */
+  roof: 'flat' | 'stepped' | 'pitched' | 'crown'
+  /** True for the handful of best-starred repos — only these earn a spire. */
+  starred: boolean
   /** Grid position in the world (x, z). */
   position: [number, number]
   /** Width of the street this building fronts (matches what CityDecor draws). */

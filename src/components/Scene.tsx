@@ -1,10 +1,12 @@
+import { Suspense, lazy } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Sky, SoftShadows, Stars } from '@react-three/drei'
-import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import type { Building, World } from '../types'
 import BuildingMesh from './Building'
 import Ground from './Ground'
 import CityDecor from './CityDecor'
+
+const Effects = lazy(() => import('./Effects'))
 
 interface SceneProps {
   world: World
@@ -112,16 +114,11 @@ export default function Scene({
         target={[0, 2, 0]}
       />
 
-      {/* Bloom makes the lit windows, lamps and spires glow — subtle by day,
-          strong at night. */}
-      <EffectComposer>
-        <Bloom
-          mipmapBlur
-          intensity={night ? 0.85 : 0.22}
-          luminanceThreshold={night ? 0.5 : 0.88}
-          luminanceSmoothing={0.25}
-        />
-      </EffectComposer>
+      {/* Ambient occlusion + bloom, loaded lazily so the heavy postprocessing
+          bundle doesn't block the first frame of the city. */}
+      <Suspense fallback={null}>
+        <Effects night={night} />
+      </Suspense>
     </Canvas>
   )
 }

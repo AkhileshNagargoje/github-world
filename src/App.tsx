@@ -4,6 +4,7 @@ import UsernameInput from './components/UsernameInput'
 import InfoPanel from './components/InfoPanel'
 import ProfileBadge from './components/ProfileBadge'
 import Legend from './components/Legend'
+import TokenPanel from './components/TokenPanel'
 import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
 import type { Building, World } from './types'
 
@@ -24,6 +25,8 @@ export default function App() {
   const [username, setUsername] = useState(usernameFromUrl)
   const [night, setNight] = useState(false)
   const [showLegend, setShowLegend] = useState(false)
+  const [showToken, setShowToken] = useState(false)
+  const [shared, setShared] = useState(false)
 
   const load = useCallback(async (name: string) => {
     setError(null)
@@ -66,6 +69,17 @@ export default function App() {
     }
   }, [])
 
+  /** Copy the permalink to this city, so a profile can be shared as a link. */
+  const share = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setShared(true)
+      window.setTimeout(() => setShared(false), 1800)
+    } catch {
+      // Clipboard can be blocked; the URL bar already holds the same link.
+    }
+  }, [])
+
   // Auto-load the URL's username (or the default) on first mount.
   useEffect(() => {
     load(usernameFromUrl())
@@ -105,6 +119,22 @@ export default function App() {
         >
           ?
         </button>
+        <button
+          className="legend-btn"
+          onClick={() => setShowToken((v) => !v)}
+          aria-label="GitHub token"
+          title="Add a GitHub token to lift the rate limit"
+        >
+          🔑
+        </button>
+        <button
+          className="legend-btn"
+          onClick={share}
+          aria-label="Copy link to this city"
+          title="Copy link to this city"
+        >
+          {shared ? '✓' : '🔗'}
+        </button>
       </header>
 
       {world && !loading && <ProfileBadge world={world} />}
@@ -134,6 +164,12 @@ export default function App() {
       )}
 
       <Legend visible={showLegend} onClose={() => setShowLegend(false)} />
+
+      <TokenPanel
+        visible={showToken}
+        onClose={() => setShowToken(false)}
+        onSaved={() => load(username)}
+      />
 
       {!world && !loading && !error && (
         <div className="overlay">

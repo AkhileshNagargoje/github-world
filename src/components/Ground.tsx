@@ -20,27 +20,33 @@ export default function Ground({ prosperity, radius, night }: GroundProps) {
   const landColor = night ? '#33403a' : lerpColor('#9c968a', '#7d9a6e', prosperity)
   const waterColor = night ? '#0a1626' : '#3f7cae'
 
-  // Irregular island polygon (deterministic coastline), sized to enclose the city.
-  const islandGeo = useMemo(() => {
-    const shape = new THREE.Shape()
-    const base = radius * 1.22
-    const pts = 56
-    for (let i = 0; i < pts; i++) {
-      const a = (i / pts) * Math.PI * 2
-      const n =
-        0.92 +
-        0.11 * Math.sin(a * 3 + 1.3) +
-        0.06 * Math.sin(a * 7 + 4.1) +
-        0.04 * Math.sin(a * 13 + 2.2)
-      const r = base * n
-      const x = Math.cos(a) * r
-      const y = Math.sin(a) * r
-      if (i === 0) shape.moveTo(x, y)
-      else shape.lineTo(x, y)
+  // Irregular island polygon (deterministic coastline), sized to enclose the
+  // city. The same outline is reused a little larger for the beach, so sand
+  // rings the grass instead of green meeting blue at a hard seam.
+  const coastline = useMemo(() => {
+    const outline = (scale: number) => {
+      const shape = new THREE.Shape()
+      const base = radius * 1.22 * scale
+      const pts = 56
+      for (let i = 0; i < pts; i++) {
+        const a = (i / pts) * Math.PI * 2
+        const n =
+          0.92 +
+          0.11 * Math.sin(a * 3 + 1.3) +
+          0.06 * Math.sin(a * 7 + 4.1) +
+          0.04 * Math.sin(a * 13 + 2.2)
+        const r = base * n
+        const x = Math.cos(a) * r
+        const y = Math.sin(a) * r
+        if (i === 0) shape.moveTo(x, y)
+        else shape.lineTo(x, y)
+      }
+      shape.closePath()
+      return new THREE.ShapeGeometry(shape)
     }
-    shape.closePath()
-    return new THREE.ShapeGeometry(shape)
+    return { land: outline(1), beach: outline(1.06) }
   }, [radius])
+  const islandGeo = coastline.land
 
   // Grass texture tiled by world coordinate (ShapeGeometry UVs are world-space).
   const map = useMemo(() => {
@@ -64,6 +70,16 @@ export default function Ground({ prosperity, radius, night }: GroundProps) {
           emissive={night ? '#0a1a2e' : '#000000'}
           emissiveIntensity={night ? 0.5 : 0}
         />
+      </mesh>
+
+      {/* Sand shelf, just under the grass and a little wider */}
+      <mesh
+        geometry={coastline.beach}
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, -0.12, 0]}
+        receiveShadow
+      >
+        <meshStandardMaterial color={night ? '#3b3a33' : '#d8c9a3'} roughness={1} />
       </mesh>
 
       {/* Island landmass */}

@@ -10,11 +10,41 @@ export class GitHubError extends Error {
   }
 }
 
+const TOKEN_KEY = 'ghw:token'
+
+/**
+ * An optional GitHub token, kept only in this browser's localStorage and sent
+ * straight to api.github.com. Unauthenticated requests are capped at 60/hour
+ * per IP, which a few profile loads will exhaust; a token raises that to 5,000.
+ * A classic token with no scopes ticked is enough — this only reads public data.
+ */
+export function getToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setToken(token: string): void {
+  try {
+    const trimmed = token.trim()
+    if (trimmed) localStorage.setItem(TOKEN_KEY, trimmed)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // Private-mode errors are non-fatal.
+  }
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   let res: Response
+  const token = getToken()
   try {
     res = await fetch(url, {
-      headers: { Accept: 'application/vnd.github+json' },
+      headers: {
+        Accept: 'application/vnd.github+json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     })
   } catch {
     throw new GitHubError('Network error — check your connection and try again.')
@@ -23,10 +53,14 @@ async function getJSON<T>(url: string): Promise<T> {
   if (res.status === 404) {
     throw new GitHubError('That GitHub user does not exist.')
   }
+  if (res.status === 401) {
+    throw new GitHubError('That GitHub token was rejected. Check it, or clear it.')
+  }
   if (res.status === 403 || res.status === 429) {
-    // Unauthenticated requests are limited to 60/hour per IP.
     throw new GitHubError(
-      'GitHub API rate limit reached. Please wait a bit and try again.',
+      token
+        ? 'GitHub API rate limit reached. Please wait a bit and try again.'
+        : 'GitHub API rate limit reached (60/hour without a token). Add a token with the 🔑 button, or wait a bit.',
     )
   }
   if (!res.ok) {
@@ -348,6 +382,22 @@ const MAX_HEIGHT = 16
 // distinguished by height/windows/spire rather than by rainbow language colors.
 const REPO_SHADES = ['#e9ecf0', '#e0e4e9', '#eff2f6', '#e3e7ec', '#dae0e6', '#f1f3f6']
 
+/**
+ * Roof treatment. Low buildings get pitched roofs like houses, tall ones get
+ * stepped setbacks or a crown, so the skyline has a silhouette instead of
+ * being a row of identical flat boxes.
+ */
+function roofFor(
+  landmark: boolean,
+  height: number,
+  roll: number,
+): 'flat' | 'stepped' | 'pitched' | 'crown' {
+  if (landmark) return 'crown'
+  if (height < 4.5) return roll < 0.65 ? 'pitched' : 'flat'
+  if (height > 11) return roll < 0.45 ? 'stepped' : roll < 0.6 ? 'crown' : 'flat'
+  return roll < 0.3 ? 'stepped' : 'flat'
+}
+
 /** Log-scaled footprint from fork count. */
 function footprintFromForks(forks: number): number {
   return Math.min(4, 1.4 + Math.log2(forks + 1) * 0.35)
@@ -367,6 +417,15 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
   scored.sort((a, b) => b.score - a.score)
   const maxScore = Math.max(1e-6, scored[0]?.score ?? 0)
   const landmarkId = scored[0]?.repo.id
+
+  // A spire should read as an award, not decoration. Only the best-starred
+  // handful earn one — giving every repo with a single star a spire made a
+  // 19,000-star project look exactly like a 1-star one.
+  const starRanking = [...repos]
+    .filter((repo) => repo.stargazers_count > 0)
+    .sort((a, b) => b.stargazers_count - a.stargazers_count)
+  const spireCount = Math.max(1, Math.round(starRanking.length * 0.15))
+  const spired = new Set(starRanking.slice(0, spireCount).map((repo) => repo.id))
 
   // Prosperity: blend followers and total stars on a log scale into 0..1.
   const prosperityRaw =
@@ -500,6 +559,8 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
       active: isActive(repo),
       windowLight: windowLightLevel(repo),
       landmark,
+      roof: roofFor(landmark, finalHeight, rnd(7)),
+      starred: spired.has(repo.id),
       position,
       roadWidth,
       roadPoint: plot.roadPoint,
