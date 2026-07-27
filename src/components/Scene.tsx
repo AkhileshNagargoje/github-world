@@ -7,6 +7,7 @@ import { detectTier, settingsFor, type QualityTier } from '../lib/quality'
 import BuildingMesh from './Building'
 import Ground from './Ground'
 import CityDecor from './CityDecor'
+import ContributionPark from './ContributionPark'
 
 const Effects = lazy(() => import('./Effects'))
 
@@ -124,6 +125,15 @@ export default function Scene({
         radius={radius}
         night={night}
       />
+
+      {world.contributions && (
+        <ContributionPark
+          contributions={world.contributions}
+          cityReach={world.cityReach}
+          spacing={world.spacing}
+          night={night}
+        />
+      )}
 
       {world.buildings.map((b) => (
         <BuildingMesh

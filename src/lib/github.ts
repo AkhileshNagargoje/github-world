@@ -1,4 +1,12 @@
-import type { Building, CityRoad, GitHubRepo, GitHubUser, World } from '../types'
+import { parkReach } from './contributionPark'
+import type {
+  Building,
+  CityRoad,
+  Contributions,
+  GitHubRepo,
+  GitHubUser,
+  World,
+} from '../types'
 
 const API_BASE = 'https://api.github.com'
 
@@ -67,6 +75,62 @@ async function getJSON<T>(url: string): Promise<T> {
     throw new GitHubError(`GitHub API error (${res.status}). Try again later.`)
   }
   return res.json() as Promise<T>
+}
+
+/**
+ * A year of contributions, which only GitHub's GraphQL API exposes — and that
+ * API rejects unauthenticated requests outright. Without a token this returns
+ * null and the city simply has no park; it is never an error the viewer sees.
+ */
+export async function fetchContributions(login: string): Promise<Contributions | null> {
+  const token = getToken()
+  if (!token) return null
+
+  const query = `query($login: String!) {
+    user(login: $login) {
+      contributionsCollection {
+        contributionCalendar {
+          totalContributions
+          weeks { contributionDays { date contributionCount } }
+        }
+      }
+    }
+  }`
+
+  try {
+    const res = await fetch(`${API_BASE}/graphql`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, variables: { login } }),
+    })
+    if (!res.ok) return null
+    const body = await res.json()
+    const calendar =
+      body?.data?.user?.contributionsCollection?.contributionCalendar
+    if (!calendar?.weeks?.length) return null
+
+    const weeks = calendar.weeks.map((week: { contributionDays: unknown[] }) =>
+      week.contributionDays.map((day) => {
+        const d = day as { date: string; contributionCount: number }
+        return { date: d.date, count: d.contributionCount ?? 0 }
+      }),
+    )
+    const busiestDay = weeks
+      .flat()
+      .reduce((max: number, day: { count: number }) => Math.max(max, day.count), 0)
+    return {
+      total: calendar.totalContributions ?? 0,
+      weeks,
+      busiestDay,
+    }
+  } catch {
+    // A missing park is not worth failing the whole city over.
+    return null
+  }
 }
 
 /**
@@ -310,7 +374,11 @@ function footprintFromForks(forks: number): number {
 }
 
 /** Turn a user + their repos into the renderable World model. */
-export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
+export function buildWorld(
+  user: GitHubUser,
+  rawRepos: GitHubRepo[],
+  contributions: Contributions | null = null,
+): World {
   // Ignore forks — a city of forks isn't really "your" work.
   const repos = rawRepos.filter((r) => !r.fork)
 
@@ -530,21 +598,26 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
 
   // Size the island from what the layout actually came out as, so the city
   // neither overflows the coastline nor floats in a sea of empty grass.
-  const reach = Math.max(
+  const cityReach = Math.max(
     spacing * 5,
     ...buildings.map((b) => Math.hypot(...b.position) + Math.max(b.footprint, b.depth)),
     ...roads.flatMap((road) => [Math.hypot(...road.a), Math.hypot(...road.b)]),
   )
+  // The contributions park sits off the south edge, so the island has to cover
+  // it too — otherwise half the calendar would be planted in the sea.
+  const reach = contributions ? Math.max(cityReach, parkReach(cityReach, spacing)) : cityReach
   const cityRadius = reach * 1.18 + spacing * 2
 
   return {
     user,
     buildings,
     roads,
+    contributions,
     prosperity,
     totalStars,
     accountAgeYears,
     spacing,
+    cityReach,
     cityRadius,
   }
 }
@@ -561,7 +634,10 @@ export async function fetchWorld(
     `${API_BASE}/users/${encodeURIComponent(login)}`,
   )
   const repos = await fetchRepos(user.login, maxRepos)
-  const world = buildWorld(user, repos)
+  // Contributions need a token; without one this resolves to null and the city
+  // is built exactly as before, minus its park.
+  const contributions = await fetchContributions(user.login)
+  const world = buildWorld(user, repos, contributions)
   writeCachedWorld(login, world)
   return world
 }
@@ -571,7 +647,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v17:'
+const CACHE_PREFIX = 'ghw:world:v18:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

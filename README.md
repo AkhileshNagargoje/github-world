@@ -20,6 +20,7 @@ Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/
 | Archived / stale repo | Dark windows ("finished building") |
 | Highest-scoring repo | **Landmark** — centered, extra height, balconies, beacon |
 | Followers + total stars | **Prosperity** — overall city brightness, greenness, scale |
+| Contributions (last year) | **Park** on the south edge — the calendar planted as beds, one per day (needs a token) |
 
 Forked repos are excluded so the city reflects your own work.
 
@@ -53,6 +54,10 @@ Heights are normalized relative to your biggest project, so the city looks well-
 - **Click empty ground** — deselect
 - **? button (top bar)** — legend explaining the visual language
 - **🌙/☀️ button** — toggle day/night
+- **⏱ button** — play the city's history, or scrub to any year
+- **📸 button** — save the city as a PNG, captioned with the profile's numbers
+- **🔗 button** — copy a link to this city
+- **🔑 button** — add a GitHub token (lifts the 60/hour rate limit, unlocks the contributions park)
 
 ## Quick start
 

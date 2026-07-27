@@ -9,6 +9,8 @@ const ITEMS = [
   { icon: '💡', label: 'Window glow', desc: 'How recently the repo was pushed to' },
   { icon: '🏗️', label: 'Crane on roof', desc: 'Active — pushed within last 60 days' },
   { icon: '🏛️', label: 'Landmark (center)', desc: 'Highest-scoring repo — balconies + beacon' },
+  { icon: '🌳', label: 'Park (south edge)', desc: 'Your contribution calendar — needs a token' },
+  { icon: '⏱', label: 'Time-lapse', desc: 'Watch the city get built, repo by repo' },
   { icon: '🌙', label: 'Night mode', desc: 'Bloom makes windows, spires & lamps glow' },
 ]
 

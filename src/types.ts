@@ -80,6 +80,24 @@ export interface Building {
   roadNormal: [number, number]
 }
 
+/** One day of the contribution calendar. */
+export interface ContributionDay {
+  /** ISO date (YYYY-MM-DD). */
+  date: string
+  count: number
+}
+
+/**
+ * A year of contributions, from GitHub's GraphQL API. Only available when the
+ * viewer has supplied a token — the REST API doesn't expose this.
+ */
+export interface Contributions {
+  total: number
+  /** 53 weeks of 7 days, oldest first, exactly as the calendar is laid out. */
+  weeks: ContributionDay[][]
+  busiestDay: number
+}
+
 export interface CityRoad {
   a: [number, number]
   b: [number, number]
@@ -98,6 +116,10 @@ export interface World {
   accountAgeYears: number
   /** World-unit distance between building plots (grid spacing). */
   spacing: number
+  /** How far the built city reaches from the center (excludes the park). */
+  cityReach: number
   /** World radius the whole city (repos + filler fabric) fills. */
   cityRadius: number
+  /** A year of contributions, when a token was available to fetch them. */
+  contributions: Contributions | null
 }
