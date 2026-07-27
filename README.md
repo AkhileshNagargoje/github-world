@@ -39,8 +39,8 @@ Heights are normalized relative to your biggest project, so the city looks well-
 ### Visual language
 
 - **Building color**: monochrome (light near-whites) — language color appears only as a dot in the info panel
-- **Layout**: irregular city blocks scattered across an island, deterministic per username — repos front the street on both kerbs, biggest project first
-- **Roads**: one fully connected network — block perimeters plus a minimum spanning tree (and a few extra loops) between blocks, each street drawn as sidewalk, asphalt and a dashed centerline, with a driveway from every building
+- **Layout**: a city grid on an island — repos front the street on both kerbs, square to the kerb, biggest project claiming the most central plot
+- **Roads**: evenly spaced avenues and streets running straight in both directions, every crossing a four-way intersection, each street drawn as asphalt with a dashed centerline and a driveway from every building
 - **Trees**: street-side trees + random groves + dedicated park zones (green patches)
 - **Streetlights**: one beside every building, glow brighter at night
 - **Day/night toggle**: night mode adds stars, bloom post-processing, and glowing windows/lamps/spires

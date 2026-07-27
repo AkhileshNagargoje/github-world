@@ -202,129 +202,31 @@ export interface CityLayout {
 }
 
 /**
- * The city's streets, built as a planar graph before a single building is
- * placed: an irregular lattice of intersections, jittered and rotated, joined
- * by streets that every plot then fronts. Because the graph shares its
- * intersections, the network is connected by construction — the earlier
- * approach of drawing block outlines and stringing them together left long
- * connector roads running across open grass.
- *
- * Blocks are whatever the streets enclose, so they vary in size and shape
- * instead of being rectangles laid out on a lattice.
+ * A plain city grid: evenly spaced streets running straight in both
+ * directions, every crossing a real intersection. The grid is square-ish and
+ * sized to the repo count, and every street is built up on both sides.
  */
 export function streetNetwork(count: number, spacing: number, rng: () => number): CityLayout {
   if (count <= 0) return { slots: [], roads: [] }
 
-  // Size the lattice so the streets it generates are mostly built up. Too many
-  // streets and the buildings scatter thinly across them, which reads as
-  // sprinkled boxes rather than a city; the target is roughly 1.5 plots for
-  // every building, filled from the middle outward.
+  // Size the grid so its streets are mostly built up: too many and the
+  // buildings scatter thinly across them, too few and they run out of plots.
   const side = Math.max(2, Math.round((1 + Math.sqrt(1 + 1.05 * Math.max(1, count))) / 2))
 
-  // Streets are unevenly spaced, so blocks differ in size across the city.
-  const xs = [0]
-  const zs = [0]
-  for (let i = 1; i < side; i++) {
-    xs.push(xs[i - 1] + spacing * (3.2 + rng() * 1.7))
-    zs.push(zs[i - 1] + spacing * (2.9 + rng() * 1.6))
-  }
-  const halfX = xs[side - 1] / 2
-  const halfZ = zs[side - 1] / 2
-  const rotation = (rng() - 0.5) * Math.PI
-  const cos = Math.cos(rotation)
-  const sin = Math.sin(rotation)
-  // Trim the corners so the city reads as a town, not a rectangle — but only
-  // once the lattice is big enough to have corners worth losing. On a 2x2 grid
-  // every node *is* a corner, and clipping would leave no streets at all.
-  const bound = side >= 4 ? Math.hypot(halfX, halfZ) * 0.9 : Infinity
+  // One block size for the whole city, so avenues line up end to end.
+  const block = spacing * 3.6
+  const half = (block * (side - 1)) / 2
+  const at = (i: number) => i * block - half
 
-  const key = (r: number, c: number) => `${r}:${c}`
-  const nodes = new Map<string, [number, number]>()
-  for (let r = 0; r < side; r++) {
-    for (let c = 0; c < side; c++) {
-      const px = xs[c] - halfX + (rng() - 0.5) * spacing * 1.6
-      const pz = zs[r] - halfZ + (rng() - 0.5) * spacing * 1.6
-      if (Math.hypot(px, pz) > bound) continue
-      nodes.set(key(r, c), [px * cos - pz * sin, px * sin + pz * cos])
+  // Avenues (north-south) and streets (east-west), full width each, so every
+  // crossing joins four ways and the network is connected by construction.
+  const roads: CityRoad[] = []
+  for (let i = 0; i < side; i++) {
+    for (let j = 0; j < side - 1; j++) {
+      roads.push({ a: [at(i), at(j)], b: [at(i), at(j + 1)] })
+      roads.push({ a: [at(j), at(i)], b: [at(j + 1), at(i)] })
     }
   }
-
-  interface Edge {
-    from: string
-    to: string
-  }
-  const edges: Edge[] = []
-  for (let r = 0; r < side; r++) {
-    for (let c = 0; c < side; c++) {
-      const here = key(r, c)
-      if (!nodes.has(here)) continue
-      for (const [dr, dc] of [
-        [0, 1],
-        [1, 0],
-      ]) {
-        const there = key(r + dr, c + dc)
-        if (nodes.has(there)) edges.push({ from: here, to: there })
-      }
-    }
-  }
-
-  const degree = (list: Edge[], node: string) =>
-    list.filter((e) => e.from === node || e.to === node).length
-
-  /** Nodes reachable from `start` over `list`. */
-  const reachable = (list: Edge[], start: string) => {
-    const seen = new Set([start])
-    const queue = [start]
-    while (queue.length) {
-      const node = queue.pop() as string
-      for (const edge of list) {
-        const next = edge.from === node ? edge.to : edge.to === node ? edge.from : null
-        if (next && !seen.has(next)) {
-          seen.add(next)
-          queue.push(next)
-        }
-      }
-    }
-    return seen
-  }
-
-  // Drop a few streets so blocks merge into bigger, irregular ones — but only
-  // where doing so leaves every remaining intersection reachable.
-  let kept = edges
-  const removals = Math.floor(edges.length * 0.14)
-  for (let i = 0; i < removals; i++) {
-    const candidates = kept.filter(
-      (edge) => degree(kept, edge.from) > 2 && degree(kept, edge.to) > 2,
-    )
-    if (!candidates.length) break
-    const victim = candidates[Math.floor(rng() * candidates.length)]
-    const trimmed = kept.filter((edge) => edge !== victim)
-    if (reachable(trimmed, trimmed[0].from).size === new Set(trimmed.flatMap((e) => [e.from, e.to])).size) {
-      kept = trimmed
-    }
-  }
-
-  // Keep only the largest connected component, then trim dead-end stubs.
-  const nodeList = [...new Set(kept.flatMap((e) => [e.from, e.to]))]
-  let best = new Set<string>()
-  for (const node of nodeList) {
-    if (best.has(node)) continue
-    const group = reachable(kept, node)
-    if (group.size > best.size) best = group
-  }
-  kept = kept.filter((edge) => best.has(edge.from) && best.has(edge.to))
-  for (let pass = 0; pass < side * 2; pass++) {
-    const stub = kept.find(
-      (edge) => degree(kept, edge.from) === 1 || degree(kept, edge.to) === 1,
-    )
-    if (!stub) break
-    kept = kept.filter((edge) => edge !== stub)
-  }
-
-  const roads: CityRoad[] = kept.map((edge) => ({
-    a: nodes.get(edge.from) as [number, number],
-    b: nodes.get(edge.to) as [number, number],
-  }))
 
   // Plots down both kerbs of every street, clear of the intersections at each
   // end, ranked so the city fills from the middle outward. Tighten the spacing
@@ -348,13 +250,13 @@ export function streetNetwork(count: number, spacing: number, rng: () => number)
       const normal: [number, number] = [-roadDir[1], roadDir[0]]
       const slots = Math.max(1, Math.floor(usable / slotGap))
       for (let i = 0; i < slots; i++) {
-        const along =
-          endClearance + (usable * (i + 0.5)) / slots + (rng() - 0.5) * spacing * 0.3
+        // Evenly spaced along the kerb — on a grid the facades should line up.
+        const along = endClearance + (usable * (i + 0.5)) / slots
         const point: [number, number] = [
           road.a[0] + roadDir[0] * along,
           road.a[1] + roadDir[1] * along,
         ]
-        const rank = Math.hypot(point[0], point[1]) + rng() * spacing * 1.5
+        const rank = Math.hypot(point[0], point[1]) + rng() * spacing * 0.3
         candidates.push({ roadPoint: point, roadDir, roadNormal: normal, rank })
         candidates.push({
           roadPoint: point,
@@ -559,7 +461,8 @@ export function buildWorld(user: GitHubUser, rawRepos: GitHubRepo[]): World {
 
     const plot = positions[chosen]
     const faceRoadAngle = Math.atan2(-plot.roadNormal[0], -plot.roadNormal[1])
-    const rotationY = landmark ? faceRoadAngle : faceRoadAngle + (rnd(2) - 0.5) * 0.16
+    // Square to the street: a grid city's buildings line up with the kerb.
+    const rotationY = faceRoadAngle
     const position = positionFor(plot)
     placed.push({ x: position[0], z: position[1], radius: bodyRadius })
 
@@ -667,7 +570,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v15:'
+const CACHE_PREFIX = 'ghw:world:v16:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 
