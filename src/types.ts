@@ -42,8 +42,13 @@ export interface Building {
   language: string | null
   stars: number
   forks: number
-  /** Repo size in KB — the main driver of building height. */
+  /** Repo size in KB — GitHub's whole-repository measure, assets included. */
   sizeKb: number
+  /**
+   * Kilobytes of actual code, and the real driver of building height. Exact
+   * with a token (from the languages API); falls back to `sizeKb` without one.
+   */
+  codeKb: number
   /** Composite significance score used to size the building & pick the landmark. */
   score: number
   /** World height of the box. */

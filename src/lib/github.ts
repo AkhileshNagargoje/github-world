@@ -82,6 +82,80 @@ async function getJSON<T>(url: string): Promise<T> {
  * API rejects unauthenticated requests outright. Without a token this returns
  * null and the city simply has no park; it is never an error the viewer sees.
  */
+/** POST a GraphQL query with the stored token. Null when there's no token. */
+async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T | null> {
+  const token = getToken()
+  if (!token) return null
+  try {
+    const res = await fetch(`${API_BASE}/graphql`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, variables }),
+    })
+    if (!res.ok) return null
+    const body = await res.json()
+    return (body?.data as T) ?? null
+  } catch {
+    // Nothing here is load-bearing: the city falls back to the REST data.
+    return null
+  }
+}
+
+/**
+ * Bytes of actual code per repo, which only GraphQL will give in one request.
+ *
+ * The REST `size` field measures the whole repository on disk, so a project
+ * with a few megabytes of images towers over one with twice the source in it.
+ * This is what building height should be measuring.
+ */
+interface RepoLanguagePage {
+  user?: {
+    repositories?: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null }
+      nodes: { name: string; languages: { edges: { size: number }[] } }[]
+    }
+  }
+}
+
+export async function fetchCodeSizes(login: string): Promise<Map<string, number> | null> {
+  const query = `query($login: String!, $cursor: String) {
+    user(login: $login) {
+      repositories(first: 100, after: $cursor, ownerAffiliations: OWNER, isFork: false, privacy: PUBLIC) {
+        pageInfo { hasNextPage endCursor }
+        nodes { name languages(first: 25) { edges { size } } }
+      }
+    }
+  }`
+
+  const sizes = new Map<string, number>()
+  let cursor: string | null = null
+  // Two pages covers the 150-repo cap the REST fetch uses.
+  for (let page = 0; page < 2; page++) {
+    const data: RepoLanguagePage | null = await graphql<RepoLanguagePage>(query, {
+      login,
+      cursor,
+    })
+    const repositories: NonNullable<
+      NonNullable<RepoLanguagePage['user']>['repositories']
+    > | undefined = data?.user?.repositories
+    if (!repositories?.nodes) break
+    for (const node of repositories.nodes) {
+      const bytes = node.languages.edges.reduce(
+        (sum: number, edge: { size: number }) => sum + (edge.size ?? 0),
+        0,
+      )
+      if (bytes > 0) sizes.set(node.name.toLowerCase(), bytes)
+    }
+    if (!repositories.pageInfo.hasNextPage) break
+    cursor = repositories.pageInfo.endCursor
+  }
+  return sizes.size ? sizes : null
+}
+
 export async function fetchContributions(login: string): Promise<Contributions | null> {
   const token = getToken()
   if (!token) return null
@@ -215,10 +289,21 @@ function windowLightLevel(repo: GitHubRepo): number {
   return Math.max(0.06, Math.min(1, 0.06 + (recencyScore(repo.pushed_at) / 8) * 0.94))
 }
 
+/**
+ * Kilobytes of code in a repo. Prefers the real total from the languages API,
+ * which counts source only; falls back to REST's `size`, which measures the
+ * whole repository on disk — a few megabytes of committed images will dwarf a
+ * project with twice the source in it.
+ */
+function codeKbFor(repo: GitHubRepo, codeBytes: Map<string, number> | null): number {
+  const bytes = codeBytes?.get(repo.name.toLowerCase())
+  return bytes ? bytes / 1024 : repo.size
+}
+
 /** Raw (un-normalized) significance of a single repo, per SIGNAL_WEIGHTS. */
-function significance(repo: GitHubRepo): number {
+function significance(repo: GitHubRepo, codeKb: number): number {
   const w = SIGNAL_WEIGHTS
-  const sizeScore = Math.log2(repo.size + 1)
+  const sizeScore = Math.log2(codeKb + 1)
   const starScore = Math.log2(repo.stargazers_count + 1)
   const engagementScore = Math.log2(
     repo.forks_count + repo.watchers_count + repo.open_issues_count + 1,
@@ -378,6 +463,7 @@ export function buildWorld(
   user: GitHubUser,
   rawRepos: GitHubRepo[],
   contributions: Contributions | null = null,
+  codeBytes: Map<string, number> | null = null,
 ): World {
   // Ignore forks — a city of forks isn't really "your" work.
   const repos = rawRepos.filter((r) => !r.fork)
@@ -387,7 +473,10 @@ export function buildWorld(
 
   // Score every repo, then sort by significance so the biggest/best project
   // lands in the center as the landmark and the city grows outward from it.
-  const scored = repos.map((repo) => ({ repo, score: significance(repo) }))
+  const scored = repos.map((repo) => {
+    const codeKb = codeKbFor(repo, codeBytes)
+    return { repo, codeKb, score: significance(repo, codeKb) }
+  })
   scored.sort((a, b) => b.score - a.score)
   const maxScore = Math.max(1e-6, scored[0]?.score ?? 0)
   const landmarkId = scored[0]?.repo.id
@@ -435,7 +524,7 @@ export function buildWorld(
     return Math.hypot(x - (seg.a[0] + dx * t), z - (seg.a[1] + dz * t))
   }
 
-  const buildings: Building[] = scored.map(({ repo, score }) => {
+  const buildings: Building[] = scored.map(({ repo, score, codeKb }) => {
     const landmark = repo.id === landmarkId
     // Height scales relative to the tallest project so proportions read well
     // for any account, whether it has 3 stars or 30,000.
@@ -543,6 +632,7 @@ export function buildWorld(
       stars: repo.stargazers_count,
       forks: repo.forks_count,
       sizeKb: repo.size,
+      codeKb: Math.round(codeKb),
       score,
       height: finalHeight,
       footprint,
@@ -636,8 +726,13 @@ export async function fetchWorld(
   const repos = await fetchRepos(user.login, maxRepos)
   // Contributions need a token; without one this resolves to null and the city
   // is built exactly as before, minus its park.
-  const contributions = await fetchContributions(user.login)
-  const world = buildWorld(user, repos, contributions)
+  // Both need a token; without one they resolve to null and the city is built
+  // from the REST data exactly as before.
+  const [contributions, codeBytes] = await Promise.all([
+    fetchContributions(user.login),
+    fetchCodeSizes(user.login),
+  ])
+  const world = buildWorld(user, repos, contributions, codeBytes)
   writeCachedWorld(login, world)
   return world
 }
@@ -647,7 +742,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v18:'
+const CACHE_PREFIX = 'ghw:world:v19:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

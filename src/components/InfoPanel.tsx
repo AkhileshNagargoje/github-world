@@ -29,8 +29,16 @@ export default function InfoPanel({ building, onClose }: InfoPanelProps) {
       {building.description && <p className="info-desc">{building.description}</p>}
 
       <div className="info-stats">
-        <span title="Repo size (drives building height)">
-          📦 {formatSize(building.sizeKb)}
+        {/* Code size drives the height, so that is what gets shown. Without a
+            token it is the repo's disk size, which is all the REST API gives. */}
+        <span
+          title={
+            building.codeKb === building.sizeKb
+              ? 'Repo size on disk (drives building height)'
+              : 'Code in this repo (drives building height)'
+          }
+        >
+          📦 {formatSize(building.codeKb)}
         </span>
         <span title="Stars">⭐ {building.stars.toLocaleString()}</span>
         <span title="Forks">🍴 {building.forks.toLocaleString()}</span>

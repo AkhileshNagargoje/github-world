@@ -12,7 +12,7 @@ Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/
 
 | GitHub stat | World effect |
 | --- | --- |
-| Repo code size (KB) | Building **height** — more code = taller |
+| Code size | Building **height** — more code = taller. Exact bytes of source with a token; without one, GitHub's repo-size figure, which counts committed images and lockfiles too |
 | Stars | Gold **spire** on the roof — taller = more stars |
 | Forks | Sets the building **footprint** (wider = more forked) |
 | Recent commits | **Window glow** — brighter when actively worked on |
@@ -30,7 +30,7 @@ Building height is driven by a **composite significance score** — tunable via 
 
 | Signal | Default weight | What it rewards |
 | --- | --- | --- |
-| **Code size** (repo KB) | **1.0** | How much you actually built |
+| **Code size** | **1.0** | How much you actually built |
 | Recency | 0.0 | Projects you're actively pushing to |
 | Stars | 0.0 | Social popularity |
 | Engagement | 0.0 | Forks + watchers + open issues |

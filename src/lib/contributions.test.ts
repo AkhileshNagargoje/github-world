@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildWorld, fetchContributions, setToken } from './github'
+import { buildWorld, fetchCodeSizes, fetchContributions, setToken } from './github'
 import { parkLayout, parkReach, PARK_COLUMNS, PARK_ROWS } from './contributionPark'
 import type { Contributions, GitHubRepo, GitHubUser } from '../types'
 
@@ -184,5 +184,87 @@ describe('the park in the world', () => {
     expect(with_.buildings.map((b) => b.position)).toEqual(
       without.buildings.map((b) => b.position),
     )
+  })
+})
+
+describe('building height from real code size', () => {
+  // The case that exposed this: canteenpro is 1,871 KB on disk but only ~104 KB
+  // of code — the rest is food photography — while Synapse-Study is 118 KB on
+  // disk and ~195 KB of code. By repo size the photo album towers over the
+  // bigger project.
+  function twoRepos(): GitHubRepo[] {
+    const [a, b] = repos(2)
+    return [
+      { ...a, name: 'canteenpro', size: 1871 },
+      { ...b, name: 'synapse-study', size: 118 },
+    ]
+  }
+
+  const heightOf = (world: ReturnType<typeof buildWorld>, name: string) =>
+    world.buildings.find((x) => x.name === name)?.height ?? 0
+
+  it('lets disk size mislead when there is no token to do better', () => {
+    const world = buildWorld(user(), twoRepos())
+    expect(heightOf(world, 'canteenpro')).toBeGreaterThan(heightOf(world, 'synapse-study'))
+  })
+
+  it('ranks by code once the languages are known', () => {
+    const codeBytes = new Map([
+      ['canteenpro', 106_422],
+      ['synapse-study', 199_992],
+    ])
+    const world = buildWorld(user(), twoRepos(), null, codeBytes)
+    expect(heightOf(world, 'synapse-study')).toBeGreaterThan(heightOf(world, 'canteenpro'))
+  })
+
+  it('reports the code size it actually used', () => {
+    const codeBytes = new Map([['canteenpro', 106_422]])
+    const world = buildWorld(user(), twoRepos(), null, codeBytes)
+    const measured = world.buildings.find((b) => b.name === 'canteenpro')
+    const fallback = world.buildings.find((b) => b.name === 'synapse-study')
+    expect(measured?.codeKb).toBe(Math.round(106_422 / 1024))
+    // No languages for this one, so it keeps the disk figure.
+    expect(fallback?.codeKb).toBe(fallback?.sizeKb)
+  })
+
+  it('falls back to disk size for a repo the languages query missed', () => {
+    const world = buildWorld(user(), twoRepos(), null, new Map())
+    expect(heightOf(world, 'canteenpro')).toBeGreaterThan(heightOf(world, 'synapse-study'))
+  })
+})
+
+describe('fetching code sizes', () => {
+  it('returns nothing without a token', async () => {
+    const spy = mockFetch({})
+    setToken('')
+    expect(await fetchCodeSizes('someone')).toBeNull()
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('sums the bytes of every language in a repo', async () => {
+    mockFetch({
+      data: {
+        user: {
+          repositories: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { name: 'Synapse-Study', languages: { edges: [{ size: 174188 }, { size: 13163 }] } },
+              { name: 'canteenpro', languages: { edges: [{ size: 58043 }] } },
+            ],
+          },
+        },
+      },
+    })
+    setToken('test-token')
+    const sizes = await fetchCodeSizes('someone')
+    // Keyed lower-case, so repo names match however they are cased.
+    expect(sizes?.get('synapse-study')).toBe(187351)
+    expect(sizes?.get('canteenpro')).toBe(58043)
+  })
+
+  it('degrades to nothing on a broken response', async () => {
+    mockFetch({ data: { user: null } })
+    setToken('test-token')
+    expect(await fetchCodeSizes('someone')).toBeNull()
   })
 })
