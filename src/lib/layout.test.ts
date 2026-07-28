@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ROAD_WIDTH_RATIO, buildWorld } from './github'
+import { growthAt, timelineRange, worthIntroducing } from './timeline'
 import type { CityRoad, GitHubRepo, GitHubUser, World } from '../types'
 
 // These are the invariants that make a city readable: every street reachable
@@ -226,5 +227,59 @@ describe('the world model', () => {
     const fresh = world.buildings.find((b) => b.name === repos[1].name) as (typeof world.buildings)[0]
     expect(archived.windowLight).toBeLessThan(0.1)
     expect(fresh.windowLight).toBeGreaterThan(0.8)
+  })
+})
+
+describe('the time-lapse', () => {
+  /** A world whose newest repo was created just now. */
+  function worldCreatedToday(count = 10) {
+    const list = makeRepos(count)
+    list[0].created_at = new Date().toISOString()
+    list[1].created_at = '2016-02-01T00:00:00Z'
+    return buildWorld(makeUser('timelapse'), list)
+  }
+
+  it('finishes building every repo, including one created today', () => {
+    const world = worldCreatedToday()
+    const { from, to } = timelineRange(world)
+    const atEnd = { active: true, playing: false, at: to, from, to }
+    for (const building of world.buildings) {
+      const grown = growthAt(atEnd, new Date(building.createdAt).getTime())
+      expect(grown).toBe(1)
+    }
+  })
+
+  it('shows nothing before the first repo existed', () => {
+    const world = worldCreatedToday()
+    const { from, to } = timelineRange(world)
+    const atStart = { active: true, playing: false, at: from, from, to }
+    for (const building of world.buildings) {
+      expect(growthAt(atStart, new Date(building.createdAt).getTime())).toBe(0)
+    }
+  })
+
+  it('shows the whole city whenever the time-lapse is off', () => {
+    const world = worldCreatedToday()
+    const off = { active: false, playing: false, at: 0, from: 0, to: 0 }
+    for (const building of world.buildings) {
+      expect(growthAt(off, new Date(building.createdAt).getTime())).toBe(1)
+    }
+  })
+
+  it('skips the intro for a young profile, and plays it for a long history', () => {
+    const young = buildWorld(
+      makeUser('young'),
+      makeRepos(6).map((r) => ({ ...r, created_at: '2026-03-01T00:00:00Z' })),
+    )
+    expect(worthIntroducing(young)).toBe(false)
+
+    const veteran = buildWorld(
+      makeUser('veteran'),
+      makeRepos(20).map((r, i) => ({
+        ...r,
+        created_at: `${2012 + (i % 12)}-01-01T00:00:00Z`,
+      })),
+    )
+    expect(worthIntroducing(veteran)).toBe(true)
   })
 })

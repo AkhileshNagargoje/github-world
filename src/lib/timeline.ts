@@ -30,9 +30,11 @@ export function timelineRange(world: World): { from: number; to: number } {
   const dates = world.buildings.map((b) => new Date(b.createdAt).getTime()).filter(Number.isFinite)
   const from = dates.length ? Math.min(...dates) : Date.now()
   const now = Math.max(Date.now(), from + 1)
-  // Run a little past today, or the newest repos would still be rising when
-  // playback ends and the city would never finish building.
-  const tail = (now - from) * RISE_FRACTION
+  // Run past today by exactly one rise, so a repo created this morning still
+  // finishes growing before playback ends. The rise is a fraction of the whole
+  // span, and the span includes this tail — hence dividing through, rather than
+  // taking the fraction of the span up to today, which always fell short.
+  const tail = ((now - from) * RISE_FRACTION) / (1 - RISE_FRACTION)
   return { from, to: now + tail }
 }
 
@@ -50,6 +52,19 @@ export function growthAt(state: TimelineState, createdAt: number): number {
 /** Ease so buildings settle into place instead of stopping dead. */
 export function easeOut(t: number): number {
   return 1 - (1 - t) * (1 - t)
+}
+
+/**
+ * Whether a profile's history is worth playing back on arrival. A city whose
+ * repos all appeared within a few months spends the intro as an empty island
+ * and then fills in at once, which reads as missing buildings rather than as
+ * history — so those open finished instead.
+ */
+export function worthIntroducing(world: World): boolean {
+  if (world.buildings.length < 8) return false
+  const { from, to } = timelineRange(world)
+  const months = (to - from) / (30 * 24 * 60 * 60 * 1000)
+  return months >= 18
 }
 
 /** The year to show on the scrubber for a given position. */

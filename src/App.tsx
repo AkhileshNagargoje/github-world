@@ -7,7 +7,7 @@ import Legend from './components/Legend'
 import TokenPanel from './components/TokenPanel'
 import { downloadPostcard, renderPostcard } from './lib/postcard'
 import Timeline from './components/Timeline'
-import { emptyTimeline, timelineRange, yearAt } from './lib/timeline'
+import { emptyTimeline, timelineRange, worthIntroducing, yearAt } from './lib/timeline'
 import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
 import type { Building, World } from './types'
 
@@ -140,7 +140,8 @@ export default function App() {
     if (!world) return
     const { from, to } = timelineRange(world)
     const calm =
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+      (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false) ||
+      !worthIntroducing(world)
     timeline.current = {
       active: !calm,
       playing: !calm,
