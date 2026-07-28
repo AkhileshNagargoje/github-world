@@ -55,7 +55,7 @@ export default function Scene({
   // streetlights and spires carry the scene.
   const sunIntensity = night ? 0.45 : 1.6 + world.prosperity * 0.6
   const ambientIntensity = night ? 0.24 : 0.5 + world.prosperity * 0.25
-  const bg = night ? '#0b1020' : '#cfe0ef'
+  const bg = night ? '#070b18' : '#cfe0ef'
   const camStart: [number, number, number] = [radius * 1.4, radius * 1.15, radius * 1.4]
 
   return (
@@ -69,7 +69,7 @@ export default function Scene({
       gl={{
         antialias: true,
         preserveDrawingBuffer: true,
-        toneMappingExposure: night ? 1.15 : 1.05,
+        toneMappingExposure: night ? 1.28 : 1.05,
       }}
       onPointerMissed={onDeselect}
     >
@@ -83,7 +83,7 @@ export default function Scene({
       <FocusCamera focus={focus} />
 
       <color attach="background" args={[bg]} />
-      <fog attach="fog" args={[bg, radius * 2.4, radius * 5.5]} />
+      <fog attach="fog" args={[bg, radius * (night ? 1.6 : 2.4), radius * (night ? 4.2 : 5.5)]} />
 
       {night ? (
         <Stars
@@ -103,6 +103,8 @@ export default function Scene({
           mieDirectionalG={0.85}
         />
       )}
+
+      {night && <Moon radius={radius} />}
 
       <ambientLight intensity={ambientIntensity} />
       <hemisphereLight
@@ -248,4 +250,22 @@ function FocusCamera({ focus }: { focus: Building | null }) {
   })
 
   return null
+}
+
+/** A moon low over the water, opposite the key light, with a soft halo. */
+function Moon({ radius }: { radius: number }) {
+  const position: [number, number, number] = [-radius * 1.9, radius * 1.15, -radius * 1.6]
+  return (
+    <group position={position}>
+      <mesh>
+        <sphereGeometry args={[radius * 0.075, 24, 24]} />
+        <meshBasicMaterial color="#e8eeff" />
+      </mesh>
+      {/* Halo: a larger, fainter shell so bloom has something to bite on. */}
+      <mesh>
+        <sphereGeometry args={[radius * 0.13, 16, 16]} />
+        <meshBasicMaterial color="#9fb4e8" transparent opacity={0.16} depthWrite={false} />
+      </mesh>
+    </group>
+  )
 }

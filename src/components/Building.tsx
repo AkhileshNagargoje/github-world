@@ -15,6 +15,13 @@ interface BuildingProps {
   onSelect: (building: BuildingModel) => void
 }
 
+/** Stable 0..1 value from a repo id — used for per-building variation. */
+function hashUnit(id: number): number {
+  let h = Math.imul(id ^ 0x9e3779b9, 2654435761) >>> 0
+  h ^= h >>> 15
+  return (h >>> 0) / 0xffffffff
+}
+
 const WARM_LIGHT = '#ffd9a0'
 const GOLD = '#ffd23f'
 
@@ -62,8 +69,14 @@ export default function Building({ building, timeline, selected, night, onSelect
   }, [footprint, depth, height])
 
   // Windows glow with activity; much brighter at night; hover/select turns up.
+  // A deterministic per-building factor keeps some towers darker than others,
+  // so a night skyline reads as a city with people in it rather than a grid of
+  // identically lit boxes.
+  const occupancy = useMemo(() => 0.55 + hashUnit(building.id) * 0.75, [building.id])
   const emissiveIntensity =
-    windowLight * (night ? 2.2 : 1.15) + (selected ? 0.7 : 0) + (hovered ? 0.4 : 0)
+    windowLight * (night ? 2.2 * occupancy : 1.15) +
+    (selected ? 0.7 : 0) +
+    (hovered ? 0.4 : 0)
 
   // Prestige: only the best-starred repos carry a spire, and its height still
   // scales with stars — so it reads as a ranking, not as decoration.

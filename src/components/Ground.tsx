@@ -17,8 +17,8 @@ interface GroundProps {
  * night the land goes dark green and the water goes deep and glossy.
  */
 export default function Ground({ prosperity, radius, night }: GroundProps) {
-  const landColor = night ? '#33403a' : lerpColor('#9c968a', '#7d9a6e', prosperity)
-  const waterColor = night ? '#0a1626' : '#3f7cae'
+  const landColor = night ? '#242e2c' : lerpColor('#9c968a', '#7d9a6e', prosperity)
+  const waterColor = night ? '#060d1a' : '#3f7cae'
 
   // Irregular island polygon (deterministic coastline), sized to enclose the
   // city. The same outline is reused a little larger for the beach, so sand
@@ -65,10 +65,10 @@ export default function Ground({ prosperity, radius, night }: GroundProps) {
         <planeGeometry args={[waterSize, waterSize]} />
         <meshStandardMaterial
           color={waterColor}
-          metalness={night ? 0.75 : 0.35}
-          roughness={night ? 0.18 : 0.35}
-          emissive={night ? '#0a1a2e' : '#000000'}
-          emissiveIntensity={night ? 0.5 : 0}
+          metalness={night ? 0.9 : 0.35}
+          roughness={night ? 0.08 : 0.35}
+          emissive={night ? '#0b1c33' : '#000000'}
+          emissiveIntensity={night ? 0.55 : 0}
         />
       </mesh>
 

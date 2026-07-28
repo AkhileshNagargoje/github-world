@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { Instances, Instance } from '@react-three/drei'
+import * as THREE from 'three'
 import { ROAD_WIDTH_RATIO } from '../lib/github'
 import type { Building, CityRoad } from '../types'
 
@@ -251,6 +252,30 @@ export default function CityDecor({
               <Instance key={i} position={[p[0], 1.62, p[2]]} />
             ))}
           </Instances>
+
+          {/* A pool of light on the pavement under each lamp. Real lights would
+              be one draw call each; these are flat additive discs, so a whole
+              city of them costs a single instanced mesh. */}
+          {night && (
+            <Instances limit={lamps.length} range={lamps.length}>
+              <circleGeometry args={[1, 16]} />
+              <meshBasicMaterial
+                color="#ffd9a0"
+                transparent
+                opacity={0.16}
+                depthWrite={false}
+                blending={THREE.AdditiveBlending}
+              />
+              {lamps.map((p, i) => (
+                <Instance
+                  key={i}
+                  position={[p[0], 0.09, p[2]]}
+                  rotation={[-Math.PI / 2, 0, 0]}
+                  scale={2.6}
+                />
+              ))}
+            </Instances>
+          )}
         </>
       )}
     </group>
