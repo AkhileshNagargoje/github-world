@@ -1,5 +1,6 @@
-import { Suspense, lazy, useRef, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import * as THREE from 'three'
 import { OrbitControls, PerformanceMonitor, Sky, SoftShadows, Stars } from '@react-three/drei'
 import type { Building, World } from '../types'
 import { TIMELAPSE_SECONDS, type TimelineState } from '../lib/timeline'
@@ -22,6 +23,8 @@ interface SceneProps {
   intro: boolean
   /** Touching the controls hands the city straight over to the viewer. */
   onIntroCancel: () => void
+  /** Building to move the camera to — a selection, or a `?repo=` deep link. */
+  focus: Building | null
   selectedId: number | null
   onSelect: (building: Building) => void
   onDeselect: () => void
@@ -35,6 +38,7 @@ export default function Scene({
   onTimelineTick,
   intro,
   onIntroCancel,
+  focus,
   selectedId,
   onSelect,
   onDeselect,
@@ -76,6 +80,7 @@ export default function Scene({
       <SoftShadows size={24} samples={quality.softShadowSamples} focus={0.85} />
 
       <TimelineDriver timeline={timeline} onTick={onTimelineTick} />
+      <FocusCamera focus={focus} />
 
       <color attach="background" args={[bg]} />
       <fog attach="fog" args={[bg, radius * 2.4, radius * 5.5]} />
@@ -203,5 +208,44 @@ function TimelineDriver({
       onTick()
     }
   })
+  return null
+}
+
+/**
+ * Eases the camera onto a selected building. The approach keeps the current
+ * viewing direction, so following a `?repo=` link settles on the building
+ * rather than swinging the whole city around to a fixed angle.
+ */
+function FocusCamera({ focus }: { focus: Building | null }) {
+  const { camera, controls } = useThree()
+  const goal = useRef<{ target: THREE.Vector3; position: THREE.Vector3 } | null>(null)
+  const settled = useRef(true)
+
+  useEffect(() => {
+    if (!focus) {
+      goal.current = null
+      return
+    }
+    const target = new THREE.Vector3(focus.position[0], focus.height * 0.55, focus.position[1])
+    const away = new THREE.Vector3().subVectors(camera.position, target)
+    away.y = Math.max(away.y, 1)
+    const distance = Math.max(10, focus.height * 1.9, Math.max(focus.footprint, focus.depth) * 6)
+    goal.current = {
+      target,
+      position: target.clone().add(away.normalize().multiplyScalar(distance)),
+    }
+    settled.current = false
+  }, [focus, camera])
+
+  useFrame(() => {
+    const next = goal.current
+    const orbit = controls as unknown as { target: THREE.Vector3; update: () => void } | null
+    if (!next || settled.current || !orbit) return
+    camera.position.lerp(next.position, 0.075)
+    orbit.target.lerp(next.target, 0.1)
+    orbit.update()
+    if (camera.position.distanceTo(next.position) < 0.35) settled.current = true
+  })
+
   return null
 }

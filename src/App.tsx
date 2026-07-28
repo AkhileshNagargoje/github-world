@@ -19,6 +19,19 @@ function usernameFromUrl(): string {
   return u?.trim() || DEFAULT_USERNAME
 }
 
+/** Repo name from the `?repo=` query param — a link straight to one building. */
+function repoFromUrl(): string | null {
+  const r = new URLSearchParams(window.location.search).get('repo')
+  return r?.trim() || null
+}
+
+/** Keep the address bar as a permalink to whatever is on screen. */
+function syncUrl(username: string, repo: string | null): void {
+  const params = new URLSearchParams({ u: username })
+  if (repo) params.set('repo', repo)
+  window.history.replaceState(null, '', `${window.location.pathname}?${params}`)
+}
+
 export default function App() {
   const [world, setWorld] = useState<World | null>(null)
   const [selected, setSelected] = useState<Building | null>(null)
@@ -38,15 +51,16 @@ export default function App() {
   const [intro, setIntro] = useState(false)
   const [, setTimelineTick] = useState(0)
   const onTimelineTick = useCallback(() => setTimelineTick((n) => n + 1), [])
+  // A repo named in the URL on arrival, waiting for its world to load.
+  const pendingRepo = useRef<string | null>(repoFromUrl())
 
   const load = useCallback(async (name: string) => {
     setError(null)
     setStale(false)
     setSelected(null)
     setUsername(name)
-    // Keep a shareable permalink in the URL bar (?u=username).
-    const url = `${window.location.pathname}?u=${encodeURIComponent(name)}`
-    window.history.replaceState(null, '', url)
+    // Keep a shareable permalink in the URL bar (?u=username[&repo=name]).
+    syncUrl(name, pendingRepo.current)
 
     // Serve a fresh cached city instantly, no network round-trip needed.
     const cached = readCachedWorld(name)
@@ -79,6 +93,21 @@ export default function App() {
       setLoading(false)
     }
   }, [])
+
+  /** Selecting a building deep-links to it, so the view can be shared as-is. */
+  const selectBuilding = useCallback(
+    (building: Building) => {
+      setSelected(building)
+      syncUrl(username, building.name)
+    },
+    [username],
+  )
+
+  const deselectBuilding = useCallback(() => {
+    setSelected(null)
+    pendingRepo.current = null
+    syncUrl(username, null)
+  }, [username])
 
   /** Save the city on screen as a PNG, captioned with the profile's numbers. */
   const savePostcard = useCallback(async () => {
@@ -121,6 +150,24 @@ export default function App() {
     }
     setTimelineOn(!calm)
     setIntro(!calm)
+  }, [world])
+
+  // A repo named in the URL opens straight on that building — no intro, since
+  // the visitor was sent to one specific thing rather than to the city.
+  useEffect(() => {
+    if (!world || !pendingRepo.current) return
+    const wanted = pendingRepo.current.toLowerCase()
+    pendingRepo.current = null
+    const match = world.buildings.find((b) => b.name.toLowerCase() === wanted)
+    if (match) {
+      setSelected(match)
+      setIntro(false)
+      timeline.current.active = false
+      timeline.current.playing = false
+      setTimelineOn(false)
+    } else {
+      syncUrl(world.user.login, null)
+    }
   }, [world])
 
   /** Stop the intro and hand the city over, whole, to the viewer. */
@@ -195,8 +242,9 @@ export default function App() {
           intro={intro}
           onIntroCancel={endIntro}
           selectedId={selected?.id ?? null}
-          onSelect={setSelected}
-          onDeselect={() => setSelected(null)}
+          onSelect={selectBuilding}
+          onDeselect={deselectBuilding}
+          focus={selected}
         />
       )}
 
@@ -281,7 +329,7 @@ export default function App() {
       )}
 
       {selected && (
-        <InfoPanel building={selected} onClose={() => setSelected(null)} />
+        <InfoPanel building={selected} onClose={deselectBuilding} />
       )}
 
       {world && (
