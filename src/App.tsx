@@ -8,7 +8,13 @@ import TokenPanel from './components/TokenPanel'
 import { downloadPostcard, renderPostcard } from './lib/postcard'
 import Timeline from './components/Timeline'
 import { emptyTimeline, timelineRange, worthIntroducing, yearAt } from './lib/timeline'
-import { CACHE_FRESH_MS, fetchWorld, GitHubError, readCachedWorld } from './lib/github'
+import {
+  CACHE_FRESH_MS,
+  fetchWorld,
+  getToken,
+  GitHubError,
+  readCachedWorld,
+} from './lib/github'
 import type { Building, World } from './types'
 
 const DEFAULT_USERNAME = 'AkhileshNagargoje'
@@ -54,7 +60,7 @@ export default function App() {
   // A repo named in the URL on arrival, waiting for its world to load.
   const pendingRepo = useRef<string | null>(repoFromUrl())
 
-  const load = useCallback(async (name: string) => {
+  const load = useCallback(async (name: string, options?: { force?: boolean }) => {
     setError(null)
     setStale(false)
     setSelected(null)
@@ -62,9 +68,11 @@ export default function App() {
     // Keep a shareable permalink in the URL bar (?u=username[&repo=name]).
     syncUrl(name, pendingRepo.current)
 
-    // Serve a fresh cached city instantly, no network round-trip needed.
+    // Serve a fresh cached city instantly, no network round-trip needed —
+    // unless the caller needs live data, as when a token has just been saved
+    // and the whole point is to fetch what the token unlocks.
     const cached = readCachedWorld(name)
-    if (cached && Date.now() - cached.ts < CACHE_FRESH_MS) {
+    if (!options?.force && cached && Date.now() - cached.ts < CACHE_FRESH_MS) {
       setWorld(cached.world)
       return
     }
@@ -75,6 +83,13 @@ export default function App() {
       setWorld(w)
       if (w.buildings.length === 0) {
         setError(`${w.user.login} has no public repositories to build a city from.`)
+      } else if (getToken() && !w.contributions && w.buildings.every((b) => b.codeKb === b.sizeKb)) {
+        // REST worked (the city is here) but GraphQL returned nothing, so the
+        // token is the wrong kind — silently losing the park and the real code
+        // sizes is worse than saying so.
+        setError(
+          'That token works for the basics but not for GitHub’s GraphQL API, so the contributions park and exact code sizes are unavailable. A classic token usually fixes it.',
+        )
       }
     } catch (err) {
       // Fall back to a stale cached city rather than a dead end, e.g. when the
@@ -355,7 +370,7 @@ export default function App() {
       <TokenPanel
         visible={showToken}
         onClose={() => setShowToken(false)}
-        onSaved={() => load(username)}
+        onSaved={() => load(username, { force: true })}
       />
 
       {!world && !loading && !error && (

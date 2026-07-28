@@ -51,7 +51,7 @@ export default function TokenPanel({ visible, onClose, onSaved }: TokenPanelProp
         value={value}
         spellCheck={false}
         autoComplete="off"
-        placeholder="ghp_… (no scopes needed)"
+        placeholder="ghp_… (classic token)"
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && save()}
         aria-label="GitHub personal access token"
@@ -73,7 +73,9 @@ export default function TokenPanel({ visible, onClose, onSaved }: TokenPanelProp
         >
           github.com/settings/tokens
         </a>{' '}
-        — leave every scope unticked, this only reads public data.
+        — a <strong>classic</strong> token with <code>read:user</code> ticked.
+        Fine-grained tokens are refused by the GraphQL API this uses for the
+        contributions park and exact code sizes.
       </p>
     </div>
   )
