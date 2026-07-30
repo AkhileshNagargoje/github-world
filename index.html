@@ -10,8 +10,8 @@
     />
     <title>GitHub World — explore any profile as a 3D city</title>
     <meta name="theme-color" content="#0b1020" />
-    <!-- Social preview. og:image is intentionally absent: a screenshot would go
-         stale every time the city changes. Add one at a stable URL if wanted. -->
+    <!-- Social preview. The card is drawn by scripts/make-og-image.mjs rather
+         than screenshotted, so it never goes stale when the city changes. -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="GitHub World — explore any profile as a 3D city" />
     <meta
@@ -19,7 +19,12 @@
       content="Repos become buildings: height is code size, a spire means stars, lit windows mean recent work."
     />
     <meta property="og:url" content="https://akhileshnagargoje.github.io/github-world/" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://akhileshnagargoje.github.io/github-world/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A night skyline of towers with lit windows and gold spires" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://akhileshnagargoje.github.io/github-world/og.png" />
     <meta name="twitter:title" content="GitHub World — explore any profile as a 3D city" />
     <meta
       name="twitter:description"

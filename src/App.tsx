@@ -5,6 +5,7 @@ import InfoPanel from './components/InfoPanel'
 import ProfileBadge from './components/ProfileBadge'
 import Legend from './components/Legend'
 import TokenPanel from './components/TokenPanel'
+import ExampleCities from './components/ExampleCities'
 import { downloadPostcard, renderPostcard } from './lib/postcard'
 import Timeline from './components/Timeline'
 import { emptyTimeline, timelineRange, worthIntroducing, yearAt } from './lib/timeline'
@@ -50,6 +51,9 @@ export default function App() {
   const [showToken, setShowToken] = useState(false)
   const [shared, setShared] = useState(false)
   const [saving, setSaving] = useState(false)
+  // The suggestions are an opening offer: once a visitor picks or searches
+  // anything, they know what the app does and the chips just take up room.
+  const [showExamples, setShowExamples] = useState(true)
   // Time-lapse state lives in a ref so playback doesn't re-render the city each
   // frame; `timelineTick` is bumped a few times a second just for the scrubber.
   const timeline = useRef(emptyTimeline())
@@ -269,7 +273,14 @@ export default function App() {
           <span className="brand-mark">🌆</span>
           <span className="brand-name">GitHub World</span>
         </div>
-        <UsernameInput initial={username} loading={loading} onSubmit={load} />
+        <UsernameInput
+          initial={username}
+          loading={loading}
+          onSubmit={(name) => {
+            setShowExamples(false)
+            load(name)
+          }}
+        />
         <button
           className="daynight"
           onClick={() => setNight((n) => !n)}
@@ -323,6 +334,14 @@ export default function App() {
       </header>
 
       {world && !loading && <ProfileBadge world={world} />}
+
+      <ExampleCities
+        visible={showExamples && !loading}
+        onPick={(name) => {
+          setShowExamples(false)
+          load(name)
+        }}
+      />
 
       {loading && (
         <div className="overlay">
