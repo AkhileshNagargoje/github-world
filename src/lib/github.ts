@@ -453,6 +453,19 @@ function roofFor(
   return roll < 0.3 ? 'stepped' : 'flat'
 }
 
+/**
+ * Depth of the annex behind a building — a workshop out back, standing for the
+ * copies of a project other people took away. Forks otherwise only nudged the
+ * footprint, which is invisible next to a fifteen-unit tower.
+ *
+ * Only projects that were actually forked get one, so it reads as a fact about
+ * the repo rather than as decoration on every building.
+ */
+function annexFor(forks: number): number {
+  if (forks < 3) return 0
+  return Math.min(2.2, 0.6 + Math.log2(forks) * 0.22)
+}
+
 /** Log-scaled footprint from fork count. */
 function footprintFromForks(forks: number): number {
   return Math.min(4, 1.4 + Math.log2(forks + 1) * 0.35)
@@ -554,10 +567,13 @@ export function buildWorld(
     // Sit the plot back from the street centerline by half a road, half a plot,
     // and a driveway — so the driveway drawn in Building.tsx always lands
     // exactly on the asphalt, whatever the building's proportions.
-    const plotDepth = depth + 0.85
+    // The annex stands inside the plot, so the plot — and every clearance
+    // computed from it — has to grow to hold it.
+    const annex = annexFor(repo.forks_count)
+    const plotDepth = depth + annex + 0.85
     const driveway = spacing * 0.3
     const roadSetback = roadWidth * 0.5 + plotDepth * 0.5 + driveway
-    const bodyRadius = Math.max(footprint, depth) * 0.5
+    const bodyRadius = Math.max(footprint, depth + annex) * 0.5
     const positionFor = (slot: LayoutSlot): [number, number] => [
       slot.roadPoint[0] + slot.roadNormal[0] * roadSetback,
       slot.roadPoint[1] + slot.roadNormal[1] * roadSetback,
@@ -633,6 +649,7 @@ export function buildWorld(
       forks: repo.forks_count,
       sizeKb: repo.size,
       codeKb: Math.round(codeKb),
+      annex,
       score,
       height: finalHeight,
       footprint,
@@ -665,8 +682,12 @@ export function buildWorld(
       for (let j = i + 1; j < buildings.length; j++) {
         const a = buildings[i]
         const b = buildings[j]
+        // Annex included: it stands behind the building and takes up plot too.
         const need =
-          (Math.max(a.footprint, a.depth) + Math.max(b.footprint, b.depth)) / 2 + 0.4
+          (Math.max(a.footprint, a.depth + a.annex) +
+            Math.max(b.footprint, b.depth + b.annex)) /
+            2 +
+          0.4
         const d = Math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
         if (d >= need) continue
         // `buildings` is sorted by score, so b is the lesser one.
@@ -742,7 +763,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v19:'
+const CACHE_PREFIX = 'ghw:world:v20:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 

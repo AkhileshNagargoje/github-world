@@ -69,6 +69,8 @@ export interface Building {
   landmark: boolean
   /** When the repo was created (ISO) — drives the city's time-lapse. */
   createdAt: string
+  /** Depth of the annex out back — how much this project was forked. 0 = none. */
+  annex: number
   /** Roof treatment, varied per repo so the skyline isn't a row of flat boxes. */
   roof: 'flat' | 'stepped' | 'pitched' | 'crown'
   /** True for the handful of best-starred repos — only these earn a spire. */

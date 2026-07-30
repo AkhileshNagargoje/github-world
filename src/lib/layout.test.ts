@@ -147,18 +147,22 @@ describe.each(SIZES)('a %i-repo city', (count) => {
       expect(nearest).toBeGreaterThan(
         roadWidth * 0.5 + Math.max(building.footprint, building.depth) * 0.5 - 0.01,
       )
+      // The annex sits behind, so it must clear the street too.
+      expect(nearest).toBeGreaterThan(building.annex * 0.5)
     }
   })
 
-  it('never overlaps two buildings', () => {
+  it('never overlaps two buildings, annexes included', () => {
+    // The annex stands behind the building, so it is part of how much room a
+    // plot actually takes up.
+    const extent = (b: World['buildings'][number]) =>
+      Math.max(b.footprint, b.depth + b.annex)
     for (let i = 0; i < world.buildings.length; i++) {
       for (let j = i + 1; j < world.buildings.length; j++) {
         const a = world.buildings[i]
         const b = world.buildings[j]
         const apart = Math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
-        const needed =
-          (Math.max(a.footprint, a.depth) + Math.max(b.footprint, b.depth)) / 2
-        expect(apart).toBeGreaterThanOrEqual(needed)
+        expect(apart).toBeGreaterThanOrEqual((extent(a) + extent(b)) / 2)
       }
     }
   })
@@ -245,7 +249,9 @@ describe('the time-lapse', () => {
     const atEnd = { active: true, playing: false, at: to, from, to }
     for (const building of world.buildings) {
       const grown = growthAt(atEnd, new Date(building.createdAt).getTime())
-      expect(grown).toBe(1)
+      // Not exactly 1: the clock moves between building the world and reading
+      // the range. The bug this guards against left the newest repo at 0.97.
+      expect(grown).toBeGreaterThan(0.999)
     }
   })
 
@@ -281,5 +287,40 @@ describe('the time-lapse', () => {
       })),
     )
     expect(worthIntroducing(veteran)).toBe(true)
+  })
+})
+
+describe('forks', () => {
+  it('gives a forked project an annex, and an unforked one none', () => {
+    const list = makeRepos(8)
+    list[0].forks_count = 0
+    list[1].forks_count = 2
+    list[2].forks_count = 40
+    list[3].forks_count = 4000
+    const world = buildWorld(makeUser('forks'), list)
+    const annexOf = (name: string) =>
+      world.buildings.find((b) => b.name === name)?.annex ?? -1
+
+    expect(annexOf(list[0].name)).toBe(0)
+    // Below the threshold: two forks is noise, not a signal.
+    expect(annexOf(list[1].name)).toBe(0)
+    expect(annexOf(list[2].name)).toBeGreaterThan(0)
+    // More forks, bigger workshop — but bounded, so it never rivals the tower.
+    expect(annexOf(list[3].name)).toBeGreaterThan(annexOf(list[2].name))
+    expect(annexOf(list[3].name)).toBeLessThanOrEqual(2.2)
+  })
+
+  it('keeps the plot deep enough to hold the annex', () => {
+    const list = makeRepos(6).map((r) => ({ ...r, forks_count: 500 }))
+    const world = buildWorld(makeUser('forky'), list)
+    for (const building of world.buildings) {
+      const toKerb = Math.hypot(
+        building.position[0] - building.roadPoint[0],
+        building.position[1] - building.roadPoint[1],
+      )
+      expect(building.annex).toBeGreaterThan(0)
+      // Front of the building to the kerb still clears the road.
+      expect(toKerb - building.depth / 2).toBeGreaterThan(building.roadWidth * 0.5)
+    }
   })
 })

@@ -6,6 +6,7 @@ interface LegendProps {
 const ITEMS = [
   { icon: '📐', label: 'Building height', desc: 'Repo code size — more code = taller' },
   { icon: '⭐', label: 'Gold spire', desc: 'Stars on the repo' },
+  { icon: '🏚️', label: 'Annex out back', desc: 'Forks — copies others took away' },
   { icon: '💡', label: 'Window glow', desc: 'How recently the repo was pushed to' },
   { icon: '🏗️', label: 'Crane on roof', desc: 'Active — pushed within last 60 days' },
   { icon: '🏛️', label: 'Landmark (center)', desc: 'Highest-scoring repo — balconies + beacon' },

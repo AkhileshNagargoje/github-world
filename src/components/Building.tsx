@@ -46,12 +46,14 @@ export default function Building({ building, timeline, selected, night, onSelect
     stars,
     starred,
     roof,
+    annex,
     windowLight,
   } = building
   const maxFoot = Math.max(footprint, depth)
   const roadDistance = Math.hypot(x - building.roadPoint[0], z - building.roadPoint[1])
   const plotW = footprint + 0.85
-  const plotD = depth + 0.85
+  // The plot stretches back to hold the annex, so the paving still frames it.
+  const plotD = depth + annex + 0.85
   // The driveway has to reach the asphalt, so it uses the same road width the
   // layout set the plot back by (and that CityDecor renders).
   const connectorLength = Math.max(
@@ -125,8 +127,9 @@ export default function Building({ building, timeline, selected, night, onSelect
   return (
     <group position={[x, 0, z]}>
       <group ref={risen} rotation={[0, rotationY, 0]}>
-        {/* Sidewalk plot plus a short path to the nearest street. */}
-        <mesh position={[0, 0.035, 0]} receiveShadow>
+        {/* Sidewalk plot plus a short path to the nearest street. The plot is
+            centred on the whole lot, so it shifts back when there is an annex. */}
+        <mesh position={[0, 0.035, -annex / 2]} receiveShadow>
           <boxGeometry args={[plotW, 0.06, plotD]} />
           <meshStandardMaterial color="#8f949b" roughness={1} />
         </mesh>
@@ -167,6 +170,28 @@ export default function Building({ building, timeline, selected, night, onSelect
             emissiveIntensity={windowLight * (night ? 1.4 : 0.6)}
           />
         </mesh>
+
+        {/* The annex out back: a workshop for a project others copied. */}
+        {annex > 0 && (
+          <group position={[0, 0, -(depth / 2 + annex / 2)]}>
+            <mesh position={[0, Math.min(2.4, height * 0.28) / 2, 0]} castShadow receiveShadow>
+              <boxGeometry
+                args={[footprint * 0.82, Math.min(2.4, height * 0.28), annex]}
+              />
+              <meshStandardMaterial color={color} roughness={0.8} />
+            </mesh>
+            {/* A shallow pitched roof, so it reads as an outbuilding rather
+                than a lump stuck to the back of the tower. */}
+            <mesh
+              position={[0, Math.min(2.4, height * 0.28) + 0.16, 0]}
+              rotation={[0, Math.PI / 4, 0]}
+              castShadow
+            >
+              <coneGeometry args={[Math.max(footprint * 0.62, annex * 0.8), 0.42, 4]} />
+              <meshStandardMaterial color="#7c828c" roughness={0.9} flatShading />
+            </mesh>
+          </group>
+        )}
 
         {/* Balconies on the landmark for a bit of civic grandeur */}
         {landmark && <Balconies height={height} footprint={footprint} />}

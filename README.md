@@ -14,7 +14,7 @@ Built with React + Vite + TypeScript and [react-three-fiber](https://github.com/
 | --- | --- |
 | Code size | Building **height** — more code = taller. Exact bytes of source with a token; without one, GitHub's repo-size figure, which counts committed images and lockfiles too |
 | Stars | Gold **spire** on the roof — taller = more stars |
-| Forks | Sets the building **footprint** (wider = more forked) |
+| Forks | An **annex** behind the building — a workshop for the copies others took away (3+ forks) |
 | Recent commits | **Window glow** — brighter when actively worked on |
 | Pushed within last 60 days | Construction **crane** on the roof ("under construction") |
 | Archived / stale repo | Dark windows ("finished building") |
