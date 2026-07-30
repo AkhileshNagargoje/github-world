@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ROAD_WIDTH_RATIO, buildWorld } from './github'
+import { ROAD_WIDTH_RATIO, blockSizeFor, buildWorld } from './github'
 import { growthAt, timelineRange, worthIntroducing } from './timeline'
 import type { CityRoad, GitHubRepo, GitHubUser, World } from '../types'
 
@@ -322,5 +322,53 @@ describe('forks', () => {
       // Front of the building to the kerb still clears the road.
       expect(toKerb - building.depth / 2).toBeGreaterThan(building.roadWidth * 0.5)
     }
+  })
+})
+
+describe('streets you can actually see', () => {
+  // The failure this guards against: blocks exactly as deep as two rows of
+  // plots. Paving filled every block kerb to kerb, the street between them read
+  // as a seam rather than a road, and plots that would not fit pushed their
+  // buildings elsewhere, leaving a fifth of the streets bare.
+  const driveway = (spacing: number) => spacing * 0.3
+
+  it.each([9, 20, 44, 78, 150])('leaves back gardens in a %i-repo city', (count) => {
+    const world = buildWorld(makeUser(`blocks${count}`), makeRepos(count))
+    const roadWidth = world.spacing * ROAD_WIDTH_RATIO
+    const depths = world.buildings
+      .map((b) => b.depth + b.annex + 0.85)
+      .sort((a, b) => a - b)
+    const deep = depths[Math.floor(depths.length * 0.9)]
+    const needed = 2 * (deep + driveway(world.spacing)) + roadWidth
+    expect(blockSizeFor(world.spacing)).toBeGreaterThan(needed)
+  })
+
+  // A small city legitimately leaves a few streets at its edge unbuilt: the
+  // grid never drops below 3x3, because a single block cannot hold plots facing
+  // inward from all four sides. Larger cities should be nearly fully fronted.
+  it.each([
+    [9, 0.75],
+    [20, 0.6],
+    [44, 0.75],
+    [78, 0.75],
+    [150, 0.75],
+  ])('builds along most of the streets in a %i-repo city', (count, floor) => {
+    const world = buildWorld(makeUser(`streets${count}`), makeRepos(count))
+    const fronted = world.roads.filter((road) =>
+      world.buildings.some(
+        (b) => distanceToSegment(b.roadPoint, segments([road])[0]) < 0.5,
+      ),
+    ).length
+    expect(fronted / world.roads.length).toBeGreaterThan(floor)
+  })
+
+  it('keeps streets wide enough to read as roads beside the buildings', () => {
+    const world = buildWorld(makeUser('width'), makeRepos(60))
+    const roadWidth = world.spacing * ROAD_WIDTH_RATIO
+    const median = world.buildings
+      .map((b) => b.footprint)
+      .sort((a, b) => a - b)[Math.floor(world.buildings.length / 2)]
+    // A street narrower than half a building disappears between the plots.
+    expect(roadWidth).toBeGreaterThan(median * 0.5)
   })
 })

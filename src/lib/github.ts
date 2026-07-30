@@ -336,7 +336,20 @@ function strSeed(str: string): number {
 
 
 /** Street width as a multiple of `spacing` — shared by the layout and renderer. */
-export const ROAD_WIDTH_RATIO = 0.34
+export const ROAD_WIDTH_RATIO = 0.5
+
+/**
+ * Distance between parallel streets.
+ *
+ * A block has to hold two rows of plots facing each other across the street,
+ * each set back by half a street and a driveway. At 3.6 there was nothing left
+ * over: paving filled the block kerb to kerb, the street read as a seam between
+ * two grey slabs rather than as a road, and plots that would not fit pushed
+ * their buildings onto other streets — leaving a fifth of them empty.
+ */
+export function blockSizeFor(spacing: number): number {
+  return spacing * 4.95
+}
 
 /** A plot fronting a street: where it meets the kerb, and which way it faces. */
 interface LayoutSlot {
@@ -360,10 +373,21 @@ export function streetNetwork(count: number, spacing: number, rng: () => number)
 
   // Size the grid so its streets are mostly built up: too many and the
   // buildings scatter thinly across them, too few and they run out of plots.
-  const side = Math.max(2, Math.round((1 + Math.sqrt(1 + 1.05 * Math.max(1, count))) / 2))
+  // A 2x2 grid is a single block, and plots facing inward from all four sides
+  // have to fit around it — which they now do, since blocks leave back gardens.
+  // Four streets hold about a dozen buildings; past that the grid grows.
+  const floor = count > 12 ? 3 : 2
+  const side = Math.max(
+    floor,
+    // Solved from what a street actually holds: a block-long street fronts
+    // about six plots, and a building claims roughly two of them once it has
+    // reserved the frontage its width covers. Ask for more streets than that
+    // and the city spreads thin across half-empty ones.
+    Math.round((1 + Math.sqrt(1 + 0.57 * Math.max(1, count))) / 2),
+  )
 
   // One block size for the whole city, so avenues line up end to end.
-  const block = spacing * 3.6
+  const block = blockSizeFor(spacing)
   const half = (block * (side - 1)) / 2
   const at = (i: number) => i * block - half
 
@@ -763,7 +787,7 @@ export async function fetchWorld(
 
 // Bump on any change to the World shape or the layout — cached entries store a
 // fully built World, so a stale one would render with the old geometry.
-const CACHE_PREFIX = 'ghw:world:v20:'
+const CACHE_PREFIX = 'ghw:world:v21:'
 /** Cache is served without a network call when fresher than this. */
 export const CACHE_FRESH_MS = 15 * 60 * 1000
 
